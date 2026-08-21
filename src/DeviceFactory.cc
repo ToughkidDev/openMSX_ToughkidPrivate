@@ -34,6 +34,7 @@
 #include "MSXMakoto.hh"
 #include "MSXDarky.hh"
 #include "MSXNeoTron.hh"
+#include "MSXSoundStar.hh"
 #include "MSXMapperIO.hh"
 #include "MSXMatsushita.hh"
 #include "MSXMegaRam.hh"
@@ -203,6 +204,8 @@ std::unique_ptr<MSXDevice> DeviceFactory::create(DeviceConfig& conf)
 		result = std::make_unique<MSXNeoTron>(conf);
 	} else if (type == "DARKY") {
 		result = std::make_unique<MSXDarky>(conf);
+	} else if (type == "SOUNDSTAR") {
+		result = std::make_unique<MSXSoundStar>(conf);
 	} else if (type == "MusicModuleMIDI") {
 		result = std::make_unique<MusicModuleMIDI>(conf);
 	} else if (type == "JVCMSXMIDI") {
