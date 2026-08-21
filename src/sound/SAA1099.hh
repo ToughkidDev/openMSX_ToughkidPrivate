@@ -23,6 +23,7 @@ public:
 	~SAA1099();
 
 	void reset(EmuTime time);
+	void selectRegister(unsigned reg, EmuTime time);
 	void writeRegister(unsigned reg, uint8_t value, EmuTime time);
 
 	void generateChannels(std::span<float*> buffers, unsigned num) override;
@@ -34,8 +35,8 @@ public:
 private:
 	[[nodiscard]] unsigned tonePeriod(unsigned channel) const;
 	[[nodiscard]] unsigned noisePeriod(unsigned noise) const;
-	[[nodiscard]] unsigned envelopeVolume(unsigned group) const;
 	void stepEnvelope(unsigned group);
+	void setEnvelope(unsigned group, unsigned value);
 	void resetState();
 
 private:
@@ -45,7 +46,8 @@ private:
 	std::array<unsigned, 2> noiseCounter{};
 	std::array<uint32_t, 2> noiseLfsr{};
 	std::array<unsigned, 2> envelopeStep{};
-	std::array<bool, 2> envelopeUp{};
+	std::array<unsigned, 6> envelopeLeft{};
+	std::array<unsigned, 6> envelopeRight{};
 	bool soundEnabled = false;
 };
 

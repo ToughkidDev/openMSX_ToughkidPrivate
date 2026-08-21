@@ -37,6 +37,7 @@ void MSXSoundStar::writeIO(uint16_t port, byte value, EmuTime time)
 	switch (port & 0xff) {
 	case 0x05:
 		registerLatch = value & 31;
+		saa1099.selectRegister(registerLatch, time);
 		break;
 	case 0x04:
 		saa1099.writeRegister(registerLatch, value, time);
