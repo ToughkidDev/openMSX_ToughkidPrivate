@@ -1,0 +1,43 @@
+name: Publish macOS ARM64 Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    name: Build and publish macOS ARM64 release
+    runs-on: macos-15
+    steps:
+      - name: Check out release tag
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Select Xcode version
+        run: sudo xcode-select -s /Applications/Xcode_16.4.app/Contents/Developer
+
+      - name: Build distributable
+        uses: ./.github/actions/build
+        with:
+          os: darwin
+          cpu: aarch64
+          flavour: opt
+
+      - name: Locate macOS disk image
+        id: package
+        shell: bash
+        run: |
+          package=$(find derived -type f -name '*.dmg' -print -quit)
+          test -n "$package"
+          echo "path=$package" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: ${{ steps.package.outputs.path }}
