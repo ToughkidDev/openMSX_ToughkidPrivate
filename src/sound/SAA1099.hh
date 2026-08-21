@@ -26,6 +26,7 @@ public:
 	void writeRegister(unsigned reg, uint8_t value, EmuTime time);
 
 	void generateChannels(std::span<float*> buffers, unsigned num) override;
+	[[nodiscard]] float getAmplificationFactorImpl() const override;
 
 	template<typename Archive>
 	void serialize(Archive& ar, unsigned version);

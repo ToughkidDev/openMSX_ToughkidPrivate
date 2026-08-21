@@ -188,6 +188,14 @@ void SAA1099::generateChannels(std::span<float*> buffers, unsigned num)
 	}
 }
 
+float SAA1099::getAmplificationFactorImpl() const
+{
+	// generateChannels() already produces normalized 0.0..1.0 samples.
+	// SoundDevice's default assumes signed 16-bit sample units and would make
+	// this output 32768 times too quiet.
+	return 1.0f;
+}
+
 template<typename Archive>
 void SAA1099::serialize(Archive& ar, unsigned /*version*/)
 {
