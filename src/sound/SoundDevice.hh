@@ -40,6 +40,15 @@ public:
 	 */
 	[[nodiscard]] unsigned getNumChannels() const { return numChannels; }
 
+	/** Optional group name used when presenting individual channels in the UI.
+	 *  The default leaves all channels in one unlabelled group.
+	 */
+	[[nodiscard]] virtual std::string_view getChannelGroup(unsigned channel) const;
+
+	/** User-facing label for an individual channel.
+	 */
+	[[nodiscard]] virtual std::string getChannelLabel(unsigned channel) const;
+
 	/** Are the individual channels of this device stereo?
 	 */
 	[[nodiscard]] bool hasStereoChannels() const {

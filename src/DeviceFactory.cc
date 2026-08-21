@@ -31,6 +31,9 @@
 #include "MSXHiResTimer.hh"
 #include "MSXKanji.hh"
 #include "MSXKanji12.hh"
+#include "MSXMakoto.hh"
+#include "MSXDarky.hh"
+#include "MSXNeoTron.hh"
 #include "MSXMapperIO.hh"
 #include "MSXMatsushita.hh"
 #include "MSXMegaRam.hh"
@@ -194,6 +197,12 @@ std::unique_ptr<MSXDevice> DeviceFactory::create(DeviceConfig& conf)
 		result = std::make_unique<MSXFmPac>(conf);
 	} else if (type == "MSX-AUDIO") {
 		result = std::make_unique<MSXAudio>(conf);
+	} else if (type == "MAKOTO") {
+		result = std::make_unique<MSXMakoto>(conf);
+	} else if (type == "NEOTRON") {
+		result = std::make_unique<MSXNeoTron>(conf);
+	} else if (type == "DARKY") {
+		result = std::make_unique<MSXDarky>(conf);
 	} else if (type == "MusicModuleMIDI") {
 		result = std::make_unique<MusicModuleMIDI>(conf);
 	} else if (type == "JVCMSXMIDI") {

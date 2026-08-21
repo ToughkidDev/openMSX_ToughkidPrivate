@@ -1,0 +1,22 @@
+<?xml version="1.0" ?>
+<!DOCTYPE msxconfig SYSTEM 'msxconfig2.dtd'>
+<msxconfig>
+  <info>
+    <name>Darky - 2x AY-8930</name>
+    <manufacturer>ToughkidDEV</manufacturer>
+    <code></code>
+    <release_year>2026</release_year>
+    <description>Supersoniqs Darky enhanced PSG stereo card with two AY-8930-compatible sound chips.</description>
+    <type>sound expansion</type>
+  </info>
+  <devices>
+    <DARKY id="Darky - 2x AY-8930">
+      <io base="0x40" num="3"/>
+      <io base="0x44" num="2"/>
+      <io base="0x4c" num="2"/>
+      <sound>
+        <volume>13000</volume>
+      </sound>
+    </DARKY>
+  </devices>
+</msxconfig>

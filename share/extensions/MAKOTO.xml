@@ -1,0 +1,21 @@
+<?xml version="1.0" ?>
+<!DOCTYPE msxconfig SYSTEM 'msxconfig2.dtd'>
+<msxconfig>
+  <info>
+    <name>Makoto - YM2608</name>
+    <manufacturer>ToughkidDEV</manufacturer>
+    <code></code>
+    <release_year>2026</release_year>
+    <description>Makoto - YM2608 (OPNA) sound expansion at I/O ports 14h-17h</description>
+    <type>sound expansion</type>
+  </info>
+
+  <devices>
+    <MAKOTO id="Makoto - YM2608">
+      <io base="0x14" num="4"/>
+      <sound>
+		<volume>13000</volume>
+      </sound>
+    </MAKOTO>
+  </devices>
+</msxconfig>

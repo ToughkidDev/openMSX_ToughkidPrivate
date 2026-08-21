@@ -66,6 +66,19 @@ SoundDevice::SoundDevice(MSXMixer& mixer_, std::string_view name_, static_string
 
 SoundDevice::~SoundDevice() = default;
 
+std::string_view SoundDevice::getChannelGroup(unsigned channel) const
+{
+	assert(channel < numChannels);
+	static_cast<void>(channel);
+	return {};
+}
+
+std::string SoundDevice::getChannelLabel(unsigned channel) const
+{
+	assert(channel < numChannels);
+	return std::to_string(channel + 1);
+}
+
 float SoundDevice::getAmplificationFactorImpl() const
 {
 	return 1.0f / 32768.0f;

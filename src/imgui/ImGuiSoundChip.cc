@@ -154,15 +154,25 @@ void ImGuiSoundChip::showChannelSettings(MSXMotherBoard& motherBoard, const std:
 			ImGui::TableSetupColumn("mute", ImGuiTableColumnFlags_WidthFixed);
 			ImGui::TableSetupColumn("file to record to", ImGuiTableColumnFlags_WidthStretch);
 			ImGui::TableHeadersRow();
+			std::string_view previousGroup;
 			im::ID_for_range(info->channelSettings.size(), [&](int i) {
-				const auto& channel =  info->channelSettings[i];
-				if (ImGui::TableNextColumn()) {
-					ImGui::StrCat(i + 1);
+				const auto group = info->device->getChannelGroup(i);
+				if (!group.empty() && (group != previousGroup)) {
+					ImGui::TableNextRow();
+					ImGui::TableSetColumnIndex(0);
+					ImGui::TextUnformatted(group);
 				}
-				if (ImGui::TableNextColumn()) {
+				previousGroup = group;
+
+				ImGui::TableNextRow();
+				const auto& channel =  info->channelSettings[i];
+				if (ImGui::TableSetColumnIndex(0)) {
+					ImGui::TextUnformatted(info->device->getChannelLabel(i));
+				}
+				if (ImGui::TableSetColumnIndex(1)) {
 					Checkbox(hotKey, "##mute", *channel.mute);
 				}
-				if (ImGui::TableNextColumn()) {
+				if (ImGui::TableSetColumnIndex(2)) {
 					// TODO: use a file browser (in "create mode")
 					ImGui::SetNextItemWidth(-FLT_MIN);
 					InputText("##rec", *channel.record);

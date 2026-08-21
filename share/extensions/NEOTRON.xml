@@ -1,0 +1,24 @@
+<?xml version="1.0" ?>
+<!DOCTYPE msxconfig SYSTEM 'msxconfig2.dtd'>
+<msxconfig>
+  <info>
+    <name>NeoTron - YM2610b</name>
+    <manufacturer>ToughkidDEV</manufacturer>
+    <code></code>
+    <release_year>2026</release_year>
+    <description>NeoTron YM2610B (OPNB-B) sound expansion at memory addresses BC00h-BC03h.</description>
+    <type>sound expansion</type>
+  </info>
+  <devices>
+    <primary slot="any">
+      <secondary slot="any">
+        <NEOTRON id="NeoTron - YM2610b">
+          <mem base="0x8000" size="0x4000"/>
+          <sound>
+            <volume>13000</volume>
+          </sound>
+        </NEOTRON>
+      </secondary>
+    </primary>
+  </devices>
+</msxconfig>
