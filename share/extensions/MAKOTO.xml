@@ -4,7 +4,7 @@
   <info>
     <name>Makoto - YM2608</name>
     <manufacturer>SuperSoniqs</manufacturer>
-    <code>by ToughkidCST</code>
+    <code>ext by ToughkidCST</code>
     <release_year>2026</release_year>
     <description>Makoto - YM2608 (OPNA) sound expansion at I/O ports 14h-17h</description>
     <type>sound expansion</type>

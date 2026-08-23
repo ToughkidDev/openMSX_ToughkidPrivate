@@ -4,7 +4,7 @@
   <info>
     <name>NeoTron - YM2610b</name>
     <manufacturer>SuperSoniqs</manufacturer>
-    <code>by ToughkidCST</code>
+    <code>ext by ToughkidCST</code>
     <release_year>2026</release_year>
     <description>NeoTron YM2610B (OPNB-B) sound expansion at memory addresses BC00h-BC03h.</description>
     <type>sound expansion</type>

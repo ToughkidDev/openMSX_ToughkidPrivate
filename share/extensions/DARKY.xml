@@ -4,7 +4,7 @@
   <info>
     <name>Darky - 2x AY-8930</name>
     <manufacturer>SuperSoniqs</manufacturer>
-    <code>by ToughkidCST</code>
+    <code>ext by ToughkidCST</code>
     <release_year>2026</release_year>
     <description>Supersoniqs Darky enhanced PSG stereo card with two AY-8930-compatible sound chips.</description>
     <type>sound expansion</type>
