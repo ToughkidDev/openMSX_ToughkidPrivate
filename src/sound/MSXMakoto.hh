@@ -42,7 +42,7 @@ public:
 private:
     class Timer;
     class AudioGroup;
-    enum class Group : uint8_t { FM, SSG, ADPCM };
+    enum class Group : uint8_t { FM, SSG, ADPCMA, ADPCMB };
 
     void updateSoundStream(EmuTime time);
     void generateChannels(Group group, std::span<float*> bufs, unsigned num);
@@ -59,7 +59,7 @@ private:
     MSXMotherBoard& motherBoard;
     ymfm::ym2608 chip;
     std::array<std::unique_ptr<Timer>, 2> timers;
-    std::array<std::unique_ptr<AudioGroup>, 3> audioGroups;
+    std::array<std::unique_ptr<AudioGroup>, 4> audioGroups;
     std::vector<ymfm::ym2608::channel_output_data> outputBuffer;
     std::vector<uint8_t> adpcmRam;
     std::vector<uint8_t> stateBuffer;

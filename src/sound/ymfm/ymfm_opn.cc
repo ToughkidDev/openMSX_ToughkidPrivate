@@ -1329,7 +1329,7 @@ void ym2608::generate(output_data *output, uint32_t numsamples)
 
 
 //-------------------------------------------------
-//  generate_channels - generate individual FM, SSG and ADPCM-B voices
+//  generate_channels - generate individual FM, SSG and ADPCM voices
 //-------------------------------------------------
 
 void ym2608::generate_channels(channel_output_data *output, uint32_t numsamples)
@@ -1341,9 +1341,9 @@ void ym2608::generate_channels(channel_output_data *output, uint32_t numsamples)
 	{
 		if ((m_ssg_channel_resampler.sampindex() + samp) % m_fm_samples_per_output == 0)
 			clock_fm_and_adpcm();
-		for (uint32_t index = 0; index < 14; ++index)
+		for (uint32_t index = 0; index < 26; ++index)
 			output->data[index] = m_last_channels.data[index];
-		output->data[14] = output->data[15] = output->data[16] = 0;
+		output->data[26] = output->data[27] = output->data[28] = 0;
 	}
 
 	m_ssg_channel_resampler.resample(output - numsamples, numsamples);
@@ -1443,6 +1443,13 @@ void ym2608::clock_fm_and_adpcm()
 		m_last_channels.data[2 * channel + 0] = voice.data[0];
 		m_last_channels.data[2 * channel + 1] = voice.data[1];
 	}
+	for (uint32_t channel = 0; channel < adpcm_a_engine::CHANNELS; ++channel)
+	{
+		ymfm_output<2> voice;
+		m_adpcm_a.output(voice.clear(), 1 << channel);
+		m_last_channels.data[12 + 2 * channel + 0] = voice.data[0];
+		m_last_channels.data[12 + 2 * channel + 1] = voice.data[1];
+	}
 
 	// mix in the ADPCM and clamp
 	m_adpcm_a.output(m_last_fm, 0x3f);
@@ -1450,8 +1457,8 @@ void ym2608::clock_fm_and_adpcm()
 	{
 		ymfm_output<2> adpcm;
 		m_adpcm_b.output(adpcm.clear(), 1);
-		m_last_channels.data[12] = adpcm.data[0];
-		m_last_channels.data[13] = adpcm.data[1];
+		m_last_channels.data[24] = adpcm.data[0];
+		m_last_channels.data[25] = adpcm.data[1];
 	}
 	m_last_fm.clamp16();
 }

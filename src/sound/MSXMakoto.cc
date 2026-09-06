@@ -61,6 +61,7 @@ public:
     {
         if (group == Group::FM) return "FM " + std::to_string(channel + 1);
         if (group == Group::SSG) return std::string{"SSG "} + char('A' + channel);
+        if (group == Group::ADPCMA) return "ADPCM-A " + std::to_string(channel + 1);
         return "ADPCM-B";
     }
 
@@ -85,8 +86,10 @@ MakotoYM2608::MakotoYM2608(const DeviceConfig& config, EmuTime time)
         *this, Group::FM, config, "Makoto-FM", "Makoto - YM2608 FM", 6);
     audioGroups[unsigned(Group::SSG)] = std::make_unique<AudioGroup>(
         *this, Group::SSG, config, "Makoto-SSG", "Makoto - YM2608 SSG", 3);
-    audioGroups[unsigned(Group::ADPCM)] = std::make_unique<AudioGroup>(
-        *this, Group::ADPCM, config, "Makoto-ADPCM", "Makoto - YM2608 ADPCM-B", 1);
+    audioGroups[unsigned(Group::ADPCMA)] = std::make_unique<AudioGroup>(
+        *this, Group::ADPCMA, config, "Makoto-ADPCM-A", "Makoto - YM2608 ADPCM-A", 6);
+    audioGroups[unsigned(Group::ADPCMB)] = std::make_unique<AudioGroup>(
+        *this, Group::ADPCMB, config, "Makoto-ADPCM-B", "Makoto - YM2608 ADPCM-B", 1);
     reset(time);
 }
 
@@ -238,10 +241,16 @@ void MakotoYM2608::generateChannels(Group group, std::span<float*> bufs, unsigne
                 bufs[channel][2 * i + 0] += sample;
                 bufs[channel][2 * i + 1] += sample;
             }
+        } else if (group == Group::ADPCMA) {
+            assert(bufs.size() == 6);
+            for (unsigned channel = 0; channel < 6; ++channel) {
+                bufs[channel][2 * i + 0] += float(output.data[12 + 2 * channel + 0]);
+                bufs[channel][2 * i + 1] += float(output.data[12 + 2 * channel + 1]);
+            }
         } else {
             assert(bufs.size() == 1);
-            bufs[0][2 * i + 0] += float(output.data[12]);
-            bufs[0][2 * i + 1] += float(output.data[13]);
+            bufs[0][2 * i + 0] += float(output.data[24]);
+            bufs[0][2 * i + 1] += float(output.data[25]);
         }
     }
 }

@@ -502,8 +502,9 @@ public:
 	static constexpr uint32_t OUTPUTS = FM_OUTPUTS + SSG_OUTPUTS;
 	using output_data = ymfm_output<OUTPUTS>;
 	// Per-voice output used by the MAKOTO extension. Six stereo FM voices,
-	// one stereo ADPCM-B voice and three mono SSG voices are exposed separately.
-	static constexpr uint32_t CHANNEL_OUTPUTS = 2 * fm_engine::CHANNELS + 2 + 3;
+	// six stereo ADPCM-A voices, one stereo ADPCM-B voice and three mono SSG
+	// voices are exposed separately.
+	static constexpr uint32_t CHANNEL_OUTPUTS = 2 * fm_engine::CHANNELS + 2 * adpcm_a_engine::CHANNELS + 2 + 3;
 	using channel_output_data = ymfm_output<CHANNEL_OUTPUTS>;
 
 	// constructor
@@ -563,11 +564,11 @@ protected:
 	uint8_t m_irq_enable;               // IRQ enable register
 	uint8_t m_flag_control;             // flag control register
 	fm_engine::output_data m_last_fm;   // last FM output
-	channel_output_data m_last_channels; // last per-voice FM/ADPCM-B output
+	channel_output_data m_last_channels; // last per-voice FM/ADPCM output
 	fm_engine m_fm;                     // core FM engine
 	ssg_engine m_ssg;                   // SSG engine
 	ssg_resampler<output_data, 2, true> m_ssg_resampler; // SSG resampler helper
-	ssg_resampler<channel_output_data, 14, false> m_ssg_channel_resampler;
+	ssg_resampler<channel_output_data, 26, false> m_ssg_channel_resampler;
 	adpcm_a_engine m_adpcm_a;           // ADPCM-A engine
 	adpcm_b_engine m_adpcm_b;           // ADPCM-B engine
 };
