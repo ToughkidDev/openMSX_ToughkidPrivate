@@ -16,6 +16,7 @@ namespace openmsx {
 
 class DeviceConfig;
 class MSXMotherBoard;
+class Rom;
 
 class MakotoYM2608 final : public ymfm::ymfm_interface
 {
@@ -24,7 +25,7 @@ public:
     // ymfm's highest YM2608 fidelity generates one sample per 8 input clocks.
     static constexpr unsigned INPUT_RATE = CLOCK_FREQ / 8;
 
-    MakotoYM2608(const DeviceConfig& config, EmuTime time);
+    MakotoYM2608(DeviceConfig& config, EmuTime time);
     ~MakotoYM2608();
 
     void reset(EmuTime time);
@@ -61,7 +62,8 @@ private:
     std::array<std::unique_ptr<Timer>, 2> timers;
     std::array<std::unique_ptr<AudioGroup>, 4> audioGroups;
     std::vector<ymfm::ym2608::channel_output_data> outputBuffer;
-    std::vector<uint8_t> adpcmRam;
+    std::unique_ptr<Rom> adpcmARom;
+    std::vector<uint8_t> adpcmBRam;
     std::vector<uint8_t> stateBuffer;
     EmuTime accessTime = EmuTime::zero();
     EmuTime busyEnd = EmuTime::zero();

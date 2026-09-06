@@ -12,6 +12,10 @@
   <devices>
     <MAKOTO id="Makoto - YM2608">
       <io base="0x14" num="4"/>
+      <rom id="adpcm-a">
+        <sha1>50b6c3e288eaa12ad275d4f323267bb72b0445df</sha1>
+        <filename>ym2608_adpcm_rom.bin</filename>
+      </rom>
       <sound>
 		<volume>13000</volume>
       </sound>

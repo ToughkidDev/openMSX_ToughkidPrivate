@@ -1,7 +1,10 @@
 #include "MSXMakoto.hh"
 
 #include "DeviceConfig.hh"
+#include "MSXCliComm.hh"
+#include "MSXException.hh"
 #include "MSXMotherBoard.hh"
+#include "Rom.hh"
 #include "Schedulable.hh"
 #include "serialize.hh"
 
@@ -11,6 +14,7 @@
 namespace openmsx {
 
 namespace {
+constexpr size_t ADPCM_A_ROM_SIZE = 8 * 1024;
 constexpr size_t INITIAL_ADPCM_RAM = 64 * 1024;
 constexpr size_t MAX_ADPCM_RAM = 16 * 1024 * 1024;
 }
@@ -76,12 +80,27 @@ private:
     Group group;
 };
 
-MakotoYM2608::MakotoYM2608(const DeviceConfig& config, EmuTime time)
+MakotoYM2608::MakotoYM2608(DeviceConfig& config, EmuTime time)
     : motherBoard(config.getMotherBoard())
     , chip(*this)
     , timers{std::make_unique<Timer>(*this, 0), std::make_unique<Timer>(*this, 1)}
-    , adpcmRam(INITIAL_ADPCM_RAM, 0)
+    , adpcmBRam(INITIAL_ADPCM_RAM, 0)
 {
+    try {
+        adpcmARom = std::make_unique<Rom>(
+            "Makoto YM2608 ADPCM-A ROM", "rom", config, "adpcm-a");
+        if (adpcmARom->size() != ADPCM_A_ROM_SIZE) {
+            config.getCliComm().printWarning(
+                "Makoto YM2608 ADPCM-A ROM must be exactly 8192 bytes. "
+                "Continuing with ADPCM-A muted.");
+            adpcmARom.reset();
+        }
+    } catch (MSXException& e) {
+        config.getCliComm().printWarning(
+            "Couldn't load Makoto YM2608 ADPCM-A rhythm ROM: ", e.getMessage(),
+            ". Continuing with ADPCM-A muted.");
+    }
+
     audioGroups[unsigned(Group::FM)] = std::make_unique<AudioGroup>(
         *this, Group::FM, config, "Makoto-FM", "Makoto - YM2608 FM", 6);
     audioGroups[unsigned(Group::SSG)] = std::make_unique<AudioGroup>(
@@ -109,7 +128,7 @@ void MakotoYM2608::reset(EmuTime time)
         timer->cancel();
     }
     timerEnds.fill(EmuTime::infinity());
-    std::fill(adpcmRam.begin(), adpcmRam.end(), uint8_t(0));
+    std::fill(adpcmBRam.begin(), adpcmBRam.end(), uint8_t(0));
     chip.set_fidelity(ymfm::OPN_FIDELITY_MAX);
     chip.reset();
     outputBuffer.clear();
@@ -187,27 +206,29 @@ void MakotoYM2608::timerExpired(unsigned timer, EmuTime time)
 
 uint8_t MakotoYM2608::ymfm_external_read(ymfm::access_class type, uint32_t address)
 {
-    if (type != ymfm::ACCESS_ADPCM_A && type != ymfm::ACCESS_ADPCM_B) {
-        return 0;
+    if (type == ymfm::ACCESS_ADPCM_A) {
+        return adpcmARom && address < adpcmARom->size() ? (*adpcmARom)[address] : 0;
     }
-    return address < adpcmRam.size() ? adpcmRam[address] : 0;
+    if (type == ymfm::ACCESS_ADPCM_B) {
+        return address < adpcmBRam.size() ? adpcmBRam[address] : 0;
+    }
+    return 0;
 }
 
 void MakotoYM2608::ymfm_external_write(
     ymfm::access_class type, uint32_t address, uint8_t data)
 {
-    if ((type != ymfm::ACCESS_ADPCM_A && type != ymfm::ACCESS_ADPCM_B) ||
-        address >= MAX_ADPCM_RAM) {
+    if (type != ymfm::ACCESS_ADPCM_B || address >= MAX_ADPCM_RAM) {
         return;
     }
-    if (address >= adpcmRam.size()) {
-        size_t newSize = adpcmRam.size();
+    if (address >= adpcmBRam.size()) {
+        size_t newSize = adpcmBRam.size();
         while (newSize <= address && newSize < MAX_ADPCM_RAM) {
             newSize *= 2;
         }
-        adpcmRam.resize(std::min(newSize, MAX_ADPCM_RAM), uint8_t(0));
+        adpcmBRam.resize(std::min(newSize, MAX_ADPCM_RAM), uint8_t(0));
     }
-    adpcmRam[address] = data;
+    adpcmBRam[address] = data;
 }
 
 void MakotoYM2608::generateChannels(Group group, std::span<float*> bufs, unsigned num)
@@ -218,7 +239,7 @@ void MakotoYM2608::generateChannels(Group group, std::span<float*> bufs, unsigne
             chip.generate_channels(&output);
         }
     } else if (outputBuffer.size() != num) {
-        // All three audio groups use the same sample clock. The FM group is
+        // All four audio groups use the same sample clock. The FM group is
         // registered first and must produce the shared samples before the
         // SSG and ADPCM groups consume them.
         assert(false);
@@ -237,7 +258,7 @@ void MakotoYM2608::generateChannels(Group group, std::span<float*> bufs, unsigne
         } else if (group == Group::SSG) {
             assert(bufs.size() == 3);
             for (unsigned channel = 0; channel < 3; ++channel) {
-                auto sample = float(output.data[14 + channel]);
+                auto sample = float(output.data[26 + channel]);
                 bufs[channel][2 * i + 0] += sample;
                 bufs[channel][2 * i + 1] += sample;
             }
@@ -259,7 +280,7 @@ template<typename Archive>
 void MakotoYM2608::serialize(Archive& ar, unsigned /*version*/)
 {
     ar.serialize("ymfmState", stateBuffer,
-                 "adpcmRam", adpcmRam,
+                 "adpcmRam", adpcmBRam,
                  "busyEnd", busyEnd,
                  "timerEnds", timerEnds);
 
