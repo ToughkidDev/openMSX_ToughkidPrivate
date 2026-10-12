@@ -201,8 +201,10 @@ void NeoTronYM2610::generateChannels(Group group, std::span<float*> bufs, unsign
 			break;
 		case Group::ADPCMB:
 			assert(bufs.size() == 1);
-			bufs[0][2 * i + 0] += float(output.data[24]);
-			bufs[0][2 * i + 1] += float(output.data[25]);
+			// Single-channel device: SoundDevice::mixChannels() does not clear
+			// the buffer, so overwrite instead of accumulating.
+			bufs[0][2 * i + 0] = float(output.data[24]);
+			bufs[0][2 * i + 1] = float(output.data[25]);
 			break;
 		}
 	}
