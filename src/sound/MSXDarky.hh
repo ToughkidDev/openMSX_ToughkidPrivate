@@ -1,7 +1,7 @@
 #ifndef MSXDARKY_HH
 #define MSXDARKY_HH
 
-#include "AY8910.hh"
+#include "DarkyAY8910.hh"
 #include "MSXDevice.hh"
 
 #include <array>
@@ -25,14 +25,14 @@ public:
 	void serialize(Archive& ar, unsigned version);
 
 private:
-	AY8910& selectChip(uint16_t port);
-	[[nodiscard]] const AY8910& selectChip(uint16_t port) const;
+	DarkyAY8910& selectChip(uint16_t port);
+	[[nodiscard]] const DarkyAY8910& selectChip(uint16_t port) const;
 	[[nodiscard]] unsigned& selectLatch(uint16_t port);
 	[[nodiscard]] const unsigned& selectLatch(uint16_t port) const;
 
 private:
-	AY8910 ay8930_1;
-	AY8910 ay8930_2;
+	DarkyAY8910 ay8930_1;
+	DarkyAY8910 ay8930_2;
 	std::array<unsigned, 2> registerLatch{};
 	byte switchedIO = 0;
 	byte microcontroller = 0;

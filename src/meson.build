@@ -469,6 +469,7 @@ sources = files(
     'sound/MSXAudio.cc',
     'sound/MSXFmPac.cc',
     'sound/MSXMakotoTK.cc',
+	'sound/DarkyAY8910.cc',
 	'sound/MSXDarky.cc',
     'sound/MSXNeoTron.cc',
 	'sound/MSXSoundStar.cc',

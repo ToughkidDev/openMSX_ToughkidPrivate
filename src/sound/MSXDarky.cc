@@ -10,8 +10,8 @@ namespace openmsx {
 
 MSXDarky::MSXDarky(DeviceConfig& config)
 	: MSXDevice(config)
-	, ay8930_1("Darky-AY8930-1", DummyAY8910Periphery::instance(), config, getCurrentTime(), AY8910::Type::AY8910)
-	, ay8930_2("Darky-AY8930-2", DummyAY8910Periphery::instance(), config, getCurrentTime(), AY8910::Type::AY8910)
+	, ay8930_1("Darky-AY8930-1", DummyAY8910Periphery::instance(), config, getCurrentTime())
+	, ay8930_2("Darky-AY8930-2", DummyAY8910Periphery::instance(), config, getCurrentTime())
 {
 	reset(getCurrentTime());
 }
@@ -25,12 +25,12 @@ void MSXDarky::reset(EmuTime time)
 	ay8930_2.reset(time);
 }
 
-AY8910& MSXDarky::selectChip(uint16_t port)
+DarkyAY8910& MSXDarky::selectChip(uint16_t port)
 {
 	return (port & 0x08) ? ay8930_2 : ay8930_1;
 }
 
-const AY8910& MSXDarky::selectChip(uint16_t port) const
+const DarkyAY8910& MSXDarky::selectChip(uint16_t port) const
 {
 	return (port & 0x08) ? ay8930_2 : ay8930_1;
 }
