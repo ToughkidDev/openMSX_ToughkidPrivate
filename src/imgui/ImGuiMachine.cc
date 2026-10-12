@@ -12,6 +12,7 @@
 #include "Debuggable.hh"
 #include "Debugger.hh"
 #include "FileException.hh"
+#include "FileOperations.hh"
 #include "GlobalSettings.hh"
 #include "HardwareConfig.hh"
 #include "MSXCommandController.hh"
@@ -208,7 +209,11 @@ void ImGuiMachine::showMenu(MSXMotherBoard* motherBoard)
 					// on each re-open of this menu, create a suggestion for a name
 					auto configName = motherBoard->getMachineName();
 					const auto* info = findMachineInfo(configName);
-					auto initialSaveSetupName = info ? info->displayName : configName;
+					// The display name is free-form text, it can contain
+					// characters that are invalid in a filename, e.g.
+					// "Philips VG 8235/39".
+					auto initialSaveSetupName = FileOperations::cleanFilename(
+						info ? info->displayName : configName);
 					saveSetupName = initialSaveSetupName;
 					if (exists()) {
 						saveSetupName = FileOperations::stem(FileOperations::getNextNumberedFileName(
@@ -223,13 +228,18 @@ void ImGuiMachine::showMenu(MSXMotherBoard* motherBoard)
 
 					auto action = [this, motherBoard] {
 						if (motherBoard) {
-							// pass full filename
-							auto filename = FileOperations::parseCommandFileArgument(
-								saveSetupName, Reactor::SETUP_DIR, "", Reactor::SETUP_EXTENSION);
-							motherBoard->storeAsSetup(filename, saveSetupDepth);
-							manager.getCliComm().printInfo(strCat("Setup saved to ", saveSetupName));
-							if (setSetupAsDefault) {
-								manager.getReactor().getDefaultSetupSetting().setString(saveSetupName);
+							try {
+								// pass full filename
+								auto filename = FileOperations::parseCommandFileArgument(
+									saveSetupName, Reactor::SETUP_DIR, "", Reactor::SETUP_EXTENSION);
+								motherBoard->storeAsSetup(filename, saveSetupDepth);
+								manager.getCliComm().printInfo(strCat("Setup saved to ", filename));
+								if (setSetupAsDefault) {
+									manager.getReactor().getDefaultSetupSetting().setString(saveSetupName);
+								}
+							} catch (MSXException& e) {
+								manager.getCliComm().printError(
+									"Couldn't save setup: ", e.getMessage());
 							}
 							setSetupAsDefault = false;
 						}
@@ -580,6 +590,8 @@ void ImGuiMachine::showSetupOverviewExtensions(MSXMotherBoard& motherBoard, Mode
 							(config->getType() == HardwareConfig::Type::EXTENSION ? manager.media->displayNameForExtension(config->getConfigName()) :
 							manager.media->displayNameForRom(std::string(config->getRomFilename()), true)) :
 							std::string(EMPTY);
+						// the popup auto-fits to its fixed-width items, give the (fill-width) combo room
+						ImGui::SetNextWindowSizeConstraints({20.0f * ImGui::GetFontSize(), 0.0f}, {FLT_MAX, FLT_MAX});
 						im::Menu(strCat(currentConfigName, "##", i).c_str(), [&]{
 							manager.media->showExtensionSelector(i, currentConfigName);
 							if (config) {
@@ -700,8 +712,13 @@ void ImGuiMachine::showSetupOverviewMedia(MSXMotherBoard& motherBoard, Mode mode
 									ImGui::TextDisabledUnformatted(displayName);
 								}
 							} else {
-								if (ImGui::Selectable(strCat(isEmpty ? EMPTY : manager.media->displayNameForRom(std::string(targetStr), true), "##", media.name).c_str(), false)) {
-									manager.media->showMediaWindow(media.name);
+								auto displayName = isEmpty ? std::string(EMPTY) : manager.media->displayNameForRom(std::string(targetStr), true);
+								if (mode == Mode::EDIT) {
+									if (ImGui::Selectable(strCat(displayName, "##", media.name).c_str(), false)) {
+										manager.media->showMediaWindow(media.name);
+									}
+								} else {
+									ImGui::TextUnformatted(displayName);
 								}
 								if (!isEmpty) {
 									im::ItemTooltip([&]{
@@ -726,7 +743,9 @@ void ImGuiMachine::showSetupOverviewMedia(MSXMotherBoard& motherBoard, Mode mode
 							} else {
 								ImGui::TextUnformatted(FileOperations::getFilename(targetStr));
 							}
-							simpleToolTip(targetStr);
+							if (!isEmpty) {
+								simpleToolTip(targetStr);
+							}
 						}
 					} else { // all next cases are the EDIT mode of the media which are not cart, disk or cassette....
 						auto formattedMediaName = formatMediaName(media.name);

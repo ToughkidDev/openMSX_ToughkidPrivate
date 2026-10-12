@@ -1,7 +1,9 @@
 #include "PluggableFactory.hh"
 
+#include "JoyHandle.hh"
 #include "ArkanoidPad.hh"
 #include "CircuitDesignerRDDongle.hh"
+#include "Gunstick.hh"
 #include "InputEventGenerator.hh"
 #include "JoyMega.hh"
 #include "JoyTap.hh"
@@ -19,9 +21,11 @@
 #include "PrinterPortLogger.hh"
 #include "PrinterPortSimpl.hh"
 #include "RS232Net.hh"
+#include "RS232Raw.hh"
 #include "RS232Tester.hh"
 #include "Reactor.hh"
 #include "SETetrisDongle.hh"
+#include "TerminatorLaser.hh"
 #include "Touchpad.hh"
 #include "Trackball.hh"
 #include "WavAudioInput.hh"
@@ -69,6 +73,12 @@ void PluggableFactory::createAll(PluggingController& controller,
 	controller.registerPluggable(std::make_unique<Touchpad>(
 		msxEventDistributor, stateChangeDistributor,
 		display, commandController));
+	controller.registerPluggable(std::make_unique<Gunstick>(
+		motherBoard, msxEventDistributor, stateChangeDistributor,
+		display));
+	controller.registerPluggable(std::make_unique<TerminatorLaser>(
+		motherBoard, msxEventDistributor, stateChangeDistributor,
+		display));
 	controller.registerPluggable(std::make_unique<JoyTap>(
 		controller, "joytap"));
 	controller.registerPluggable(std::make_unique<NinjaTap>(
@@ -85,6 +95,12 @@ void PluggableFactory::createAll(PluggingController& controller,
 	controller.registerPluggable(std::make_unique<JoyMega>(
 		commandController, msxEventDistributor,
 		stateChangeDistributor, joystickManager, 2)); // joymega2
+	controller.registerPluggable(std::make_unique<JoyHandle>(
+		commandController, msxEventDistributor,
+		stateChangeDistributor, joystickManager, 1)); // joyhandle1
+	controller.registerPluggable(std::make_unique<JoyHandle>(
+		commandController, msxEventDistributor,
+		stateChangeDistributor, joystickManager, 2)); // joyhandle2
 
 	// Dongles
 	controller.registerPluggable(std::make_unique<SETetrisDongle>());
@@ -101,6 +117,8 @@ void PluggableFactory::createAll(PluggingController& controller,
 	controller.registerPluggable(std::make_unique<RS232Tester>(
 		eventDistributor, scheduler, commandController));
 	controller.registerPluggable(std::make_unique<RS232Net>(
+		eventDistributor, scheduler, commandController));
+	controller.registerPluggable(std::make_unique<RS232Raw>(
 		eventDistributor, scheduler, commandController));
 
 	// Sampled audio:

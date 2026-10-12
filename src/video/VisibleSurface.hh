@@ -48,6 +48,7 @@ public:
 	                             const std::string& filename);
 
 	[[nodiscard]] std::optional<gl::ivec2> getMouseCoord() const;
+	[[nodiscard]] gl::vec2 getMsxPixelSize() const;
 	void updateWindowTitle();
 	bool setFullScreen(bool fullscreen);
 	void resize();
@@ -87,8 +88,11 @@ public:
 	// RTSchedulable
 	void executeRT() override;
 
-private:
+	/** Show, hide or change the host cursor, depending on fullscreen,
+	  * grab-input, pointer_hide_delay, ImGui and crosshair requests. */
 	void updateCursor();
+
+private:
 	void createSurface(gl::ivec2 size, unsigned flags);
 	void setViewPort(gl::ivec2 logicalSize, bool fullScreen);
 

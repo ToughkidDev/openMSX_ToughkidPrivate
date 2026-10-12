@@ -1,7 +1,7 @@
 #include "SDLRasterizer.hh"
 
 #include "Display.hh"
-#include "OutputSurface.hh"
+#include "PixelOperations.hh"
 #include "PostProcessor.hh"
 #include "RawFrame.hh"
 #include "RenderSettings.hh"
@@ -70,10 +70,13 @@ static constexpr int translateX(int absoluteX, bool narrow)
 	if (absoluteX < TICKS_LEFT_BORDER) return 0;
 	if (absoluteX > TICKS_RIGHT_BORDER) return maxX;
 
-	// Note: The ROUND_MASK forces the ticks to a pixel (2-tick) boundary.
-	//       If this is not done, rounding errors will occur.
-	const int ROUND_MASK = narrow ? ~1 : ~3;
-	return ((absoluteX - (TICKS_VISIBLE_MIDDLE & ROUND_MASK))
+	// Note: The origin is forced to a pixel boundary, otherwise rounding
+	//       errors will occur. It must be the same boundary the display area
+	//       sits on: getLeftBackground() is 2 (mod 4), so the origin is too,
+	//       else mid-line border-color changes land half a pixel off it.
+	static_assert((TICKS_VISIBLE_MIDDLE % 4) == 3);
+	const int origin = TICKS_VISIBLE_MIDDLE - 1;
+	return ((absoluteX - origin)
 		>> (narrow ? 1 : 2))
 		+ maxX / 2;
 }
@@ -92,10 +95,8 @@ inline void SDLRasterizer::renderBitmapLine(std::span<Pixel> buf, unsigned vramL
 }
 
 SDLRasterizer::SDLRasterizer(
-		VDP& vdp_, Display& display, OutputSurface& screen_,
-		std::unique_ptr<PostProcessor> postProcessor_)
+		VDP& vdp_, Display& display, std::unique_ptr<PostProcessor> postProcessor_)
 	: vdp(vdp_), vram(vdp.getVRAM())
-	, screen(screen_)
 	, postProcessor(std::move(postProcessor_))
 	, workFrame(std::make_unique<RawFrame>(640, 240))
 	, renderSettings(display.getRenderSettings())
@@ -189,7 +190,7 @@ void SDLRasterizer::frameStart(EmuTime time)
 	// 240 - 212 = 28 lines available for top/bottom border; 14 each.
 	// NTSC: display at [32..244),
 	// PAL:  display at [59..271).
-	lineRenderTop = vdp.isPalTiming() ? 59 - 14 : 32 - 14;
+	lineRenderTop = getLineRenderTop(vdp.isPalTiming());
 }
 
 void SDLRasterizer::frameEnd()
@@ -253,15 +254,23 @@ void SDLRasterizer::setTransparency(bool enabled)
 
 void SDLRasterizer::precalcPalette()
 {
+	auto mapRGB255 = [](gl::ivec3 rgb) {
+		auto [r, g, b] = rgb;
+		PixelOperations pixelOps;
+		return pixelOps.combine(r, g, b);
+	};
+	auto mapRGB = [&](gl::vec3 rgb) {
+		return mapRGB255(gl::ivec3(rgb * 255.0f));
+	};
+
 	if (vdp.isMSX1VDP()) {
 		// Fixed palette.
 		const auto palette = vdp.getMSX1Palette();
 		for (auto i : xrange(16)) {
 			const auto rgb = palette[i];
 			palFg[i] = palFg[i + 16] = palBg[i] =
-				screen.mapRGB(
-					renderSettings.transformRGB(
-						vec3(rgb[0], rgb[1], rgb[2]) * (1.0f / 255.0f)));
+				mapRGB(renderSettings.transformRGB(
+					vec3(rgb[0], rgb[1], rgb[2]) * (1.0f / 255.0f)));
 		}
 	} else {
 		if (vdp.hasYJK()) {
@@ -274,7 +283,7 @@ void SDLRasterizer::precalcPalette()
 					r = narrow_cast<int>(255.0f * renderSettings.transformComponent(narrow<float>(i) * (1.0f / 31.0f)));
 				}
 				for (auto [rgb, col] : enumerate(V9958_COLORS)) {
-					col = screen.mapRGB255(ivec3(
+					col = mapRGB255(ivec3(
 						intensity[(rgb >> 10) & 31],
 						intensity[(rgb >>  5) & 31],
 						intensity[(rgb >>  0) & 31]));
@@ -287,8 +296,7 @@ void SDLRasterizer::precalcPalette()
 							         narrow<float>(g),
 							         narrow<float>(b)};
 							V9958_COLORS[(r << 10) + (g << 5) + b] =
-								screen.mapRGB(
-									renderSettings.transformRGB(rgb * (1.0f / 31.0f)));
+								mapRGB(renderSettings.transformRGB(rgb * (1.0f / 31.0f)));
 						}
 					}
 				}
@@ -317,11 +325,10 @@ void SDLRasterizer::precalcPalette()
 				for (auto r : xrange(8)) {
 					for (auto g : xrange(8)) {
 						for (auto b : xrange(8)) {
-							V9938_COLORS[r][g][b] =
-								screen.mapRGB255(ivec3(
-									intensity[r],
-									intensity[g],
-									intensity[b]));
+							V9938_COLORS[r][g][b] = mapRGB255(ivec3(
+								intensity[r],
+								intensity[g],
+								intensity[b]));
 						}
 					}
 				}
@@ -333,8 +340,7 @@ void SDLRasterizer::precalcPalette()
 							         narrow<float>(g),
 							         narrow<float>(b)};
 							V9938_COLORS[r][g][b] =
-								screen.mapRGB(
-									renderSettings.transformRGB(rgb * (1.0f / 7.0f)));
+								mapRGB(renderSettings.transformRGB(rgb * (1.0f / 7.0f)));
 						}
 					}
 				}
@@ -359,17 +365,26 @@ void SDLRasterizer::precalcPalette()
 void SDLRasterizer::precalcColorIndex0(DisplayMode mode,
 		bool transparency, const RawFrame* superimposing, uint8_t bgColorIndex)
 {
-	// Graphic7 mode doesn't use transparency.
-	if (mode.getByte() == DisplayMode::GRAPHIC7) {
-		transparency = false;
-	} else {
+	if (mode.getByte() != DisplayMode::GRAPHIC7) {
 		bgColorIndex &= 0x0f;
+	}
+	// Graphic7 mode doesn't use transparency, also not for YAE pixels on
+	// top of it (palette color 0 in SCREEN 10 stays opaque with TP=0).
+	if (mode.getBase() == DisplayMode::GRAPHIC7) {
+		transparency = false;
+	}
+	// Text1, Text2 and Multicolor ignore the TP bit: color 0 is always
+	// transparent. Measured on a real V9958 (FS-A1ST), see:
+	//   https://github.com/openMSX/openMSX/issues/2218
+	if (mode.isTextMode() ||
+	    mode.getBase() == one_of(DisplayMode::MULTICOLOR, DisplayMode::MULTIQ)) {
+		transparency = true;
 	}
 
 	int tpIndex = transparency ? bgColorIndex : 0;
 	if (mode.getBase() != DisplayMode::GRAPHIC5) {
 		Pixel c = (superimposing && (bgColorIndex == 0))
-		        ? screen.getKeyColor()
+		        ? Pixel(0x00000000) // alpha = 0
 		        : palBg[tpIndex];
 
 		if (palFg[0] != c) {
@@ -402,7 +417,7 @@ std::pair<Pixel, Pixel> SDLRasterizer::getBorderColors()
 			return PALETTE256[bgColor];
 		} else {
 			if (!bgColor && vdp.isSuperimposing()) {
-				return screen.getKeyColor();
+				return Pixel(0x00000000); // alpha = 0
 			} else {
 				return palBg[bgColor];
 			}

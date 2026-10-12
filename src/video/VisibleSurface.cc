@@ -6,6 +6,7 @@
 #include "GLSnow.hh"
 #include "GLUtil.hh"
 #include "OffScreenSurface.hh"
+#include "PixelOperations.hh"
 #include "RenderSettings.hh"
 #include "VideoSystem.hh"
 
@@ -57,18 +58,6 @@ VisibleSurface::VisibleSurface(
 	, pauseSetting(pauseSetting_)
 {
 	auto& renderSettings = display.getRenderSettings();
-
-	inputEventGenerator.getGrabInput().attach(*this);
-	renderSettings.getPointerHideDelaySetting().attach(*this);
-	renderSettings.getFullScreenSetting().attach(*this);
-	pauseSetting.attach(*this);
-
-	for (auto type : {EventType::MOUSE_MOTION,
-	                  EventType::MOUSE_BUTTON_DOWN,
-	                  EventType::MOUSE_BUTTON_UP,
-	                  EventType::IMGUI_ACTIVE}) {
-		eventDistributor.registerEventListener(type, *this);
-	}
 
 	updateCursor();
 	SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
@@ -156,6 +145,19 @@ VisibleSurface::VisibleSurface(
 	glBindVertexArray(vao);
 #endif
 	inputEventGenerator.initializeGrab();
+
+	// Keep last: if the ctor throws, ~VisibleSurface won't run to detach.
+	inputEventGenerator.getGrabInput().attach(*this);
+	renderSettings.getPointerHideDelaySetting().attach(*this);
+	renderSettings.getFullScreenSetting().attach(*this);
+	pauseSetting.attach(*this);
+
+	for (auto type : {EventType::MOUSE_MOTION,
+	                  EventType::MOUSE_BUTTON_DOWN,
+	                  EventType::MOUSE_BUTTON_UP,
+	                  EventType::IMGUI_ACTIVE}) {
+		eventDistributor.registerEventListener(type, *this);
+	}
 }
 
 VisibleSurface::~VisibleSurface()
@@ -272,7 +274,7 @@ void VisibleSurface::update(const Setting& /*setting*/) noexcept
 void VisibleSurface::executeRT()
 {
 	// timer expired, hide cursor
-	videoSystem.showCursor(false);
+	videoSystem.showCursor(VideoSystem::Cursor::HIDDEN);
 	inputEventGenerator.updateGrab(grab);
 }
 
@@ -292,6 +294,14 @@ void VisibleSurface::updateCursor()
 	grab = !guiActive && !pauseSetting.getBoolean() &&
 	       (renderSettings.getFullScreen() ||
 	        inputEventGenerator.getGrabInput().getBoolean());
+	if (display.isCrosshairCursorRequested() && !guiActive && window) {
+		// The host cursor is the aim point (e.g. of a light gun), so
+		// keep it visible, also in fullscreen and grab-input mode. (No
+		// crosshair before the window exists: its size depends on it.)
+		inputEventGenerator.updateGrab(grab);
+		videoSystem.showCursor(VideoSystem::Cursor::CROSSHAIR);
+		return;
+	}
 	if (grab) {
 		// always hide cursor in fullscreen or grab-input mode, but do it
 		// after the derived class is constructed to avoid an SDL bug.
@@ -301,9 +311,9 @@ void VisibleSurface::updateCursor()
 	inputEventGenerator.updateGrab(grab);
 	float delay = renderSettings.getPointerHideDelay();
 	if (delay == 0.0f) {
-		videoSystem.showCursor(false);
+		videoSystem.showCursor(VideoSystem::Cursor::HIDDEN);
 	} else {
-		videoSystem.showCursor(true);
+		videoSystem.showCursor(VideoSystem::Cursor::NORMAL);
 		if (delay > 0.0f) {
 			scheduleRT(int(delay * 1e6f)); // delay in s, schedule in us
 		}
@@ -351,6 +361,27 @@ std::optional<gl::ivec2> VisibleSurface::getMouseCoord() const
 	int mouseX, mouseY;
 	SDL_GetMouseState(&mouseX, &mouseY);
 	return gl::ivec2{mouseX, mouseY};
+}
+
+gl::vec2 VisibleSurface::getMsxPixelSize() const
+{
+	// SDL reports mouse coordinates in window coordinates ('points').
+	int windowW, windowH;
+	SDL_GetWindowSize(window.get(), &windowW, &windowH);
+	auto windowSize = gl::vec2(narrow<float>(windowW), narrow<float>(windowH));
+
+	// The image shows 'horizontal_stretch' of the 320 MSX pixels per line,
+	// and always all 240 lines.
+	const auto& renderSettings = display.getRenderSettings();
+	auto msxSize = gl::vec2(renderSettings.getHorizontalStretch(), 240.0f);
+
+	if (renderSettings.getFullStretch()) {
+		return windowSize / msxSize; // image covers the whole window
+	}
+	// The viewport is expressed in physical pixels, which on high-DPI
+	// displays are not the same as points, so convert via the window size.
+	return (gl::vec2(getViewSize()) * windowSize) /
+	       (gl::vec2(getPhysicalSize()) * msxSize);
 }
 
 

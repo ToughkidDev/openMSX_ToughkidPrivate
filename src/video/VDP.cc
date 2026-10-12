@@ -62,10 +62,42 @@ static uint8_t getDelayCycles(const XMLElement& devices)
 	return 0;
 }
 
+/** The delay between openMSX's port-#98 access timestamp -- the start of T2 of
+  * the Z80's I/O machine cycle -- and the moment the V9938 registers the CPU's
+  * VRAM request. Measured to 28.9 +- 0.2 cycles, so it could also be 28. */
+static constexpr int CPU_REQUEST_DELAY = 29;
+
+/** How far after openMSX's port-#98 read timestamp a pending VRAM read may
+  * still have its access slot and be seen by that IN. The Z80 samples the data
+  * bus 2.5 T-states after the start of T2 (T2, the I/O wait state, and half of
+  * T3): 15 cycles. The V9938 has the byte out of the DRAM about 6 cycles into
+  * the access (RAS, CAS, then two cycles to data). The difference is an
+  * estimate, not a measurement; the case that matters -- the BIOS's INIR scroll
+  * in TEXT2, 138 cycles per byte, where the slot table has gaps of up to 100
+  * cycles -- needs 6. */
+static constexpr int CPU_READ_SAMPLE_DELAY = 9;
+
+/** A CPU VRAM request that would have been granted a 'tight' slot costs the
+  * command engine that slot anyway, to a dummy read, if it arrives this many
+  * cycles before it. */
+/** The access grid switches to the display tables 162 cycles into the line
+  * before the display area, which is 1368 + (202 - 162) cycles before
+  * 'displayStartSyncTime', and back 162 cycles into the line after it, which is
+  * (202 - 162) cycles before 'vScanSyncTime'. (Both those sync points are at
+  * cycle 202 of their line, where VR flips.) */
+static constexpr int SLOT_TABLE_START_LEAD = VDP::TICKS_PER_LINE + 202 - 162;
+static constexpr int SLOT_TABLE_END_LEAD = 202 - 162;
+
+static constexpr int DUMMY_WINDOW_LO = 18;
+static constexpr int DUMMY_WINDOW_HI = 22;
+
 VDP::VDP(const DeviceConfig& config)
 	: MSXDevice(config)
 	, syncVSync(*this)
+	, syncLineCountReset(*this)
 	, syncDisplayStart(*this)
+	, syncSlotTableStart(*this)
+	, syncSlotTableEnd(*this)
 	, syncVScan(*this)
 	, syncHScan(*this)
 	, syncHorAdjust(*this)
@@ -73,6 +105,7 @@ VDP::VDP(const DeviceConfig& config)
 	, syncSetBlank(*this)
 	, syncSetSprites(*this)
 	, syncCpuVramAccess(*this)
+	, syncCpuVramDummy(*this)
 	, syncCmdDone(*this)
 	, display(getReactor().getDisplay())
 	, cmdTiming    (display.getRenderSettings().getCmdTimingSetting())
@@ -95,7 +128,10 @@ VDP::VDP(const DeviceConfig& config)
 	, frameStartTime(getCurrentTime())
 	, irqVertical  (getMotherBoard(), getName() + ".IRQvertical",   config)
 	, irqHorizontal(getMotherBoard(), getName() + ".IRQhorizontal", config)
+	, lineCountResetSyncTime(getCurrentTime())
 	, displayStartSyncTime(getCurrentTime())
+	, slotTableStartSyncTime(getCurrentTime())
+	, slotTableEndSyncTime(getCurrentTime())
 	, vScanSyncTime(getCurrentTime())
 	, hScanSyncTime(getCurrentTime())
 	, tooFastCallback(
@@ -270,6 +306,7 @@ void VDP::resetInit()
 	vramPointer = 0;
 	cpuVramData = 0;
 	cpuVramReqIsRead = false; // avoid UMR
+	cpuVramReqData = 0;
 	dataLatch = 0;
 	cpuExtendedVram = false;
 	registerDataStored = false;
@@ -278,9 +315,16 @@ void VDP::resetInit()
 	blinkState = false;
 	blinkCount = 0;
 	horizontalAdjust = 7;
+	// Placeholders until the first display line counter reset latches the
+	// real values, see execLineCountReset().
+	displayStart = (8 + getVerticalAdjust()
+	                + ((controlRegs[9] & 0x02) ? 54 : 27)) * TICKS_PER_LINE
+	             + 100 + 102;
+	horizontalScanOffset = -1000 * TICKS_PER_LINE; // "never"
 
 	// TODO: Real VDP probably resets timing as well.
 	isDisplayArea = false;
+	isSlotTableDisplayArea = false;
 	displayEnabled = false;
 	spriteEnabled = true;
 	superimposing = nullptr;
@@ -325,7 +369,10 @@ void VDP::powerUp(EmuTime time)
 void VDP::reset(EmuTime time)
 {
 	syncVSync        .removeSyncPoint();
+	syncLineCountReset.removeSyncPoint();
 	syncDisplayStart .removeSyncPoint();
+	syncSlotTableStart.removeSyncPoint();
+	syncSlotTableEnd .removeSyncPoint();
 	syncVScan        .removeSyncPoint();
 	syncHScan        .removeSyncPoint();
 	syncHorAdjust    .removeSyncPoint();
@@ -333,8 +380,12 @@ void VDP::reset(EmuTime time)
 	syncSetBlank     .removeSyncPoint();
 	syncSetSprites   .removeSyncPoint();
 	syncCpuVramAccess.removeSyncPoint();
+	syncCpuVramDummy .removeSyncPoint();
 	syncCmdDone      .removeSyncPoint();
 	pendingCpuAccess = false;
+	previousCpuSlot = EmuTime::zero();
+	previousCpuSlotIsLate = false;
+	secondCpuSlot = EmuTime::infinity();
 
 	// Reset subsystems.
 	cmdEngine->sync(time);
@@ -348,6 +399,7 @@ void VDP::reset(EmuTime time)
 
 	// Init scheduling.
 	frameCount = -1;
+	frameStartTime.reset(time); // no previous frame to carry over from
 	frameStart(time);
 	assert(frameCount == 0);
 }
@@ -374,8 +426,22 @@ void VDP::execVSync(EmuTime time)
 	frameStart(time);
 }
 
+void VDP::setSlotTableDisplayArea(bool enabled, EmuTime time)
+{
+	if (isSlotTableDisplayArea == enabled) return;
+	// A command must not use the new grid for the accesses it still owes on
+	// the old one.
+	if (displayEnabled) cmdEngine->sync(time);
+	isSlotTableDisplayArea = enabled;
+}
+
 void VDP::execDisplayStart(EmuTime time)
 {
+	// The access grid normally switched over a line ago. It can still be off
+	// if the display start moved inside that line, because then the sync
+	// point that switches it was rescheduled into the past.
+	setSlotTableDisplayArea(true, time);
+
 	// Display area starts here, unless we're doing overscan and it
 	// was already active.
 	if (!isDisplayArea) {
@@ -386,8 +452,25 @@ void VDP::execDisplayStart(EmuTime time)
 	}
 }
 
+void VDP::execSlotTableStart(EmuTime time)
+{
+	// The VDP starts fetching the sprite data of the first display line here,
+	// and the access grid follows the fetching rather than the display.
+	setSlotTableDisplayArea(true, time);
+}
+
+void VDP::execSlotTableEnd(EmuTime time)
+{
+	setSlotTableDisplayArea(false, time);
+}
+
 void VDP::execVScan(EmuTime time)
 {
+	// Same the other way round: the grid normally switched back 40 cycles
+	// ago. (In overscan this is not reached at all, and the grid correctly
+	// stays on across the frame boundary.)
+	setSlotTableDisplayArea(false, time);
+
 	// VSCAN is the end of display.
 	// This will generate a VBLANK IRQ. Typically MSX software will
 	// poll the keyboard/joystick on this IRQ. So now is a good
@@ -424,6 +507,21 @@ void VDP::execHorAdjust(EmuTime time)
 	horizontalAdjust = newHorAdjust;
 }
 
+int VDP::getScrollBurstTicks(EmuTime time) const
+{
+	// The new value is used from the first 8-pixel group that starts at
+	// least LEAD ticks after the write (the burst for that group is fetched
+	// ahead of the beam).
+	static constexpr int LEAD = 16;
+	static constexpr int GROUP = 8 * 4; // 8 pixels of 4 ticks
+	if (!isDisplayEnabled() || !getDisplayMode().isBitmapMode()) return -1;
+	int ticks = getTicksThisFrame(time);
+	int lineStart = ticks - ticks % TICKS_PER_LINE;
+	int x = ticks - lineStart - getLeftSprites(); // ticks into display
+	if (x + LEAD <= 0) return -1;
+	return lineStart + getLeftSprites() + (x + LEAD + GROUP - 1) / GROUP * GROUP;
+}
+
 void VDP::execSetMode(EmuTime time)
 {
 	updateDisplayMode(
@@ -450,9 +548,16 @@ void VDP::execSetSprites(EmuTime time)
 
 void VDP::execCpuVramAccess(EmuTime time)
 {
-	assert(!allowTooFastAccess);
 	pendingCpuAccess = false;
 	executeCpuVramAccess(time);
+	if (secondCpuSlot != EmuTime::infinity()) [[unlikely]] {
+		// A request accepted just before this access now gets its turn.
+		cpuVramReqIsRead = secondCpuVramReqIsRead;
+		cpuVramReqData = secondCpuVramReqData;
+		pendingCpuAccess = true;
+		syncCpuVramAccess.setSyncPoint(secondCpuSlot);
+		secondCpuSlot = EmuTime::infinity();
+	}
 }
 
 void VDP::execSyncCmdDone(EmuTime time)
@@ -460,35 +565,75 @@ void VDP::execSyncCmdDone(EmuTime time)
 	cmdEngine->sync(time);
 }
 
-// TODO: This approach assumes that an overscan-like approach can be used
-//       skip display start, so that the border is rendered instead.
-//       This makes sense, but it has not been tested on real MSX yet.
-void VDP::scheduleDisplayStart(EmuTime time)
+// The vertical timing of the V9938 hangs off one display line counter. It is
+// reset once per frame, in the top border, when the raster line plus the
+// vertical adjust equals 15 (so at line 8 + getVerticalAdjust()), to a
+// negative value that depends on the 50/60Hz and 192/212-lines bits of R#9
+// *as they are at that moment*. From there it counts up once per line:
+//  - display starts when it reaches 0,
+//  - the display area ends when it equals 192 or 212, compared against R#9
+//    bit 7 as it is then (so if the bit is changed after the counter passed
+//    the new value the display simply does not end: overscan),
+//  - the line interrupt fires when it equals R#19 - R#23.
+// Nothing about it changes until the next reset, so it keeps counting into
+// the top border of the next frame.
+// This was measured on FS-A1GT and FS-A1ST with the test program from PR
+// #2191, and matches the V9958 die-shot reconstruction (IKA9958_st.sv,
+// "vertical-auxiliary counter") in https://github.com/ika-musume/IKA9958.
+void VDP::scheduleLineCountReset(EmuTime time)
+{
+	// The reset happens at the start of the processing of the line, see
+	// syncAtNextLine().
+	int ticks = (8 + getVerticalAdjust()) * TICKS_PER_LINE
+	          + 144 + (horizontalAdjust - 7) * 4;
+	EmuTime resetTime = frameStartTime + ticks;
+	if (resetTime <= time) {
+		// Moved behind us by an adjust change. If a reset is still
+		// pending at its old position, leave it there.
+		// (The real chip would then skip the reset for this frame,
+		// not emulated.)
+		return;
+	}
+	if (lineCountResetSyncTime > time) {
+		syncLineCountReset.removeSyncPoint();
+	}
+	lineCountResetSyncTime = resetTime;
+	syncLineCountReset.setSyncPoint(resetTime);
+}
+
+void VDP::execLineCountReset(EmuTime time)
 {
 	// Remove pending DISPLAY_START sync point, if any.
 	if (displayStartSyncTime > time) {
 		syncDisplayStart.removeSyncPoint();
-		//cerr << "removing predicted DISPLAY_START sync point\n";
+	}
+	if (slotTableStartSyncTime > time) {
+		syncSlotTableStart.removeSyncPoint();
 	}
 
-	// Calculate when (lines and time) display starts.
-	int lineZero =
-		// sync + top erase:
-		3 + 13 +
-		// top border:
-		(palTiming ? 36 : 9) +
-		(controlRegs[9] & 0x80 ? 0 : 10) +
-		getVerticalAdjust(); // 0..15
+	// Display line zero moves here. In overscan the display is still on,
+	// so render and check sprites up to this point against the old one.
+	renderer->updateLineZero(time);
+	spriteChecker->sync(time);
+
+	// Lines from the reset to display line zero, i.e. minus the value the
+	// counter is reset to:
+	//   60Hz: 17 (212 lines) or 27 (192 lines)
+	//   50Hz: 44 (212 lines) or 54 (192 lines)
+	int linesToDisplay = ((controlRegs[9] & 0x02) ? 44 : 17)
+	                   + ((controlRegs[9] & 0x80) ?  0 : 10);
+	int resetLine = getTicksThisFrame(time) / TICKS_PER_LINE;
 	displayStart =
-		lineZero * TICKS_PER_LINE
+		(resetLine + linesToDisplay) * TICKS_PER_LINE
 		+ 100 + 102; // VR flips at start of left border
 	displayStartSyncTime = frameStartTime + displayStart;
-	//cerr << "new DISPLAY_START is " << (displayStart / TICKS_PER_LINE) << "\n";
+	syncDisplayStart.setSyncPoint(displayStartSyncTime);
 
-	// Register new DISPLAY_START sync point.
-	if (displayStartSyncTime > time) {
-		syncDisplayStart.setSyncPoint(displayStartSyncTime);
-		//cerr << "inserting new DISPLAY_START sync point\n";
+	// The access grid switches over 162 cycles into the line before this one.
+	slotTableStartSyncTime = displayStartSyncTime -
+	                         VDPClock::duration(SLOT_TABLE_START_LEAD);
+	if (slotTableStartSyncTime > time) {
+		syncSlotTableStart.setSyncPoint(slotTableStartSyncTime);
 	}
 
 	// HSCAN and VSCAN are relative to display start.
@@ -503,15 +648,33 @@ void VDP::scheduleVScan(EmuTime time)
 		syncVScan.removeSyncPoint();
 		//cerr << "removing predicted VSCAN sync point\n";
 	}
+	if (slotTableEndSyncTime > time) {
+		syncSlotTableEnd.removeSyncPoint();
+	}
 
-	// Calculate moment in time display end occurs.
-	vScanSyncTime = frameStartTime +
-	                (displayStart + getNumberOfLines() * TICKS_PER_LINE);
+	// Display end is where the display line counter equals the number of
+	// lines selected by R#9 bit 7 as it is right now.
+	int offset = displayStart + getNumberOfLines() * TICKS_PER_LINE;
+	if (offset < 0) {
+		// That moment lies before this frame (the counter is still the
+		// previous frame's), so there is no display end until the next
+		// counter reset schedules one.
+		vScanSyncTime = slotTableEndSyncTime = time;
+		return;
+	}
+	vScanSyncTime = frameStartTime + offset;
 
-	// Register new VSCAN sync point.
+	// Register new VSCAN sync point. If the counter already passed the
+	// value there is none this frame: overscan.
 	if (vScanSyncTime > time) {
 		syncVScan.setSyncPoint(vScanSyncTime);
 		//cerr << "inserting new VSCAN sync point\n";
+	}
+
+	// The access grid switches back 162 cycles into the line after this one.
+	slotTableEndSyncTime = vScanSyncTime - VDPClock::duration(SLOT_TABLE_END_LEAD);
+	if (slotTableEndSyncTime > time) {
+		syncSlotTableEnd.setSyncPoint(slotTableEndSyncTime);
 	}
 }
 
@@ -523,55 +686,35 @@ void VDP::scheduleHScan(EmuTime time)
 		hScanSyncTime = time;
 	}
 
-	// Calculate moment in time line match occurs.
+	// The match is where the display line counter equals R#19 - R#23. The
+	// counter started at 'displayStart' and keeps counting until the next
+	// reset, so the match sits at a fixed distance from the display start,
+	// possibly in the top border of the next frame. If that moment lies at
+	// or after the next reset, the counter never gets there.
 	horizontalScanOffset = displayStart - (100 + 102)
 		+ ((controlRegs[19] - controlRegs[23]) & 0xFF) * TICKS_PER_LINE
 		+ getRightBorder();
-	// Display line counter continues into the next frame.
-	// Note that this implementation is not 100% accurate, since the
-	// number of ticks of the *previous* frame should be subtracted.
-	// By switching from NTSC to PAL it may even be possible to get two
-	// HSCANs in a single frame without modifying any other setting.
-	// Fortunately, no known program relies on this.
-	if (int ticksPerFrame = getTicksPerFrame();
-	    horizontalScanOffset >= ticksPerFrame) {
-		horizontalScanOffset -= ticksPerFrame;
-
-		// Time at which the internal VDP display line counter is reset,
-		// expressed in ticks after vsync.
-		// I would expect the counter to reset at line 16 (for neutral
-		// set-adjust), but measurements on NMS8250 show it is one line
-		// earlier. I'm not sure whether the actual counter reset
-		// happens on line 15 or whether the VDP timing may be one line
-		// off for some reason.
-		// TODO: This is just an assumption, more measurements on real MSX
-		//       are necessary to verify there is really such a thing and
-		//       if so, that the value is accurate.
-		// Note: see this bug report for some measurements on a real machine:
-		//   https://github.com/openMSX/openMSX/issues/1106
-		int lineCountResetTicks = (8 + getVerticalAdjust()) * TICKS_PER_LINE;
-
-		// Display line counter is reset at the start of the top border.
-		// Any HSCAN that has a higher line number never occurs.
-		if (horizontalScanOffset >= lineCountResetTicks) {
-			// This is one way to say "never".
-			horizontalScanOffset = -1000 * TICKS_PER_LINE;
-		}
+	if (horizontalScanOffset < 0) {
+		// Before this frame, so already behind us. (Possible while the
+		// counter is still the previous frame's.)
+		return;
+	}
+	EmuTime matchTime = frameStartTime + horizontalScanOffset;
+	EmuTime nextResetTime = (time < lineCountResetSyncTime)
+		? lineCountResetSyncTime
+		// Assumes the adjust and 50/60Hz settings don't change before
+		// then. Close enough.
+		: lineCountResetSyncTime + VDPClock::duration(getTicksPerFrame());
+	if (matchTime >= nextResetTime) {
+		// This is one way to say "never".
+		horizontalScanOffset = -1000 * TICKS_PER_LINE;
+		return;
 	}
 
 	// Register new HSCAN sync point if interrupt is enabled.
-	if ((controlRegs[0] & 0x10) && horizontalScanOffset >= 0) {
-		// No line interrupt will occur after bottom erase.
-		// NOT TRUE: "after next top border start" is correct.
-		// Note that line interrupt can occur in the next frame.
-		/*
-		EmuTime bottomEraseTime =
-			frameStartTime + getTicksPerFrame() - 3 * TICKS_PER_LINE;
-		*/
-		hScanSyncTime = frameStartTime + horizontalScanOffset;
-		if (hScanSyncTime > time) {
-			syncHScan.setSyncPoint(hScanSyncTime);
-		}
+	if ((controlRegs[0] & 0x10) && (matchTime > time)) {
+		hScanSyncTime = matchTime;
+		syncHScan.setSyncPoint(hScanSyncTime);
 	}
 }
 
@@ -619,11 +762,21 @@ void VDP::frameStart(EmuTime time)
 		renderer->updateSuperimposing(superimposing, time);
 	}
 
+	// The display line counter does not notice the frame boundary: it
+	// keeps counting from the previous frame's display start until this
+	// frame's reset (see execLineCountReset()). Keep 'displayStart' and
+	// 'horizontalScanOffset' pointing at the same moments, now expressed
+	// relative to the new frame start.
+	int elapsed = getTicksThisFrame(time);
+	displayStart -= elapsed;
+	horizontalScanOffset -= elapsed;
+
 	// Schedule next VSYNC.
 	frameStartTime.reset(time);
 	syncVSync.setSyncPoint(frameStartTime + getTicksPerFrame());
-	// Schedule DISPLAY_START, VSCAN and HSCAN.
-	scheduleDisplayStart(time);
+	// Schedule the display line counter reset in the top border, which in
+	// turn schedules DISPLAY_START, VSCAN and HSCAN.
+	scheduleLineCountReset(time);
 
 	// Inform VDP subcomponents.
 	// TODO: Do this via VDPVRAM?
@@ -774,9 +927,23 @@ void VDP::vramWrite(uint8_t value, EmuTime time)
 
 uint8_t VDP::vramRead(EmuTime time)
 {
-	// Return the result from a previous read. In case
-	// allowTooFastAccess==true, the call to scheduleCpuVramAccess()
-	// already overwrites that variable, so make a local copy first.
+	if (pendingCpuAccess) [[unlikely]] {
+		if (allowTooFastAccess) {
+			// In this mode no access may be lost, so a read has to see
+			// the result of the access before it even when that access
+			// has not had its slot yet.
+			flushCpuVramAccesses(time);
+		} else if (cpuVramReqIsRead &&
+		           (*syncCpuVramAccess.isPending() <=
+		            (time + VDPClock::duration(CPU_READ_SAMPLE_DELAY)))) {
+			// The read before this one has its slot only just after
+			// 'time', but still before the Z80 samples the data bus, so
+			// this IN does see its result.
+			syncCpuVramAccess.removeSyncPoint();
+			execCpuVramAccess(time);
+		}
+	}
+	// Return the result from a previous read.
 	uint8_t result = cpuVramData;
 
 	uint8_t dummy = 0;
@@ -788,61 +955,194 @@ void VDP::scheduleCpuVramAccess(bool isRead, uint8_t write, EmuTime time)
 {
 	// Tested on real V9938: 'cpuVramData' is shared between read and write.
 	// E.g. OUT (#98),A followed by IN A,(#98) returns the just written value.
+	// It is written by the port access itself, so also by a request that the
+	// VDP goes on to lose.
 	if (!isRead) cpuVramData = write;
-	cpuVramReqIsRead = isRead;
-	if (pendingCpuAccess) [[unlikely]] {
-		// Already scheduled. Do nothing.
-		// The old request has been overwritten by the new request!
-		assert(!allowTooFastAccess);
-		tooFastCallback.execute();
+
+	if (isMSX1VDP()) {
+		scheduleTMS99x8VramAccess(isRead, time);
 	} else {
-		if (allowTooFastAccess) [[unlikely]] {
-			// Immediately execute request.
-			// In the past, in allowTooFastAccess-mode, we would
-			// still schedule the actual access, but process
-			// pending requests early when a new one arrives before
-			// the old one was handled. Though this would still go
-			// wrong because of the delayed update of
-			// 'vramPointer'. We could _only_ _partly_ work around
-			// that by calculating the actual vram address early
-			// (likely not what the real VDP does). But because
-			// allowTooFastAccess is anyway an artificial situation
-			// we now solve this in a simpler way: simply not
-			// schedule CPU-VRAM accesses.
-			assert(!pendingCpuAccess);
-			executeCpuVramAccess(time);
-		} else {
-			// For V99x8 there are 16 extra cycles, for details see:
-			//    doc/internal/vdp-vram-timing/vdp-timing.html
-			// For TMS99x8 the situation is less clear, see
-			//    doc/internal/vdp-vram-timing/vdp-timing-2.html
-			// Additional measurements(*) show that picking either 8 or 9
-			// TMS cycles (equivalent to 32 or 36 V99x8 cycles) gives the
-			// same result as on a real MSX. This corresponds to
-			// respectively 1.49us or 1.68us, the TMS documentation
-			// specifies 2us for this value.
-			//  (*) In this test we did a lot of OUT operations (writes to
-			//  VRAM) that are exactly N cycles apart. After the writes we
-			//  detect whether all were successful by reading VRAM
-			//  (slowly). We vary N and found that you get corruption for
-			//  N<=26 cycles, but no corruption occurs for N>=27. This test
-			//  was done in screen 2 with 4 sprites visible on one line
-			//  (though the sprites did not seem to make a difference).
-			// So this test could not decide between 8 or 9 TMS cycles.
-			// To be on the safe side we picked 8.
-			//
-			// Update: 8 cycles (Delta::D32) causes corruption in
-			// 'Chase HQ', see
-			//    http://www.msx.org/forum/msx-talk/openmsx/openmsx-about-release-testing-help-wanted
-			// lowering it to 7 cycles seems fine. TODO needs more
-			// investigation. (Just guessing) possibly there are
-			// other variables that influence the exact timing (7
-			// vs 8 cycles).
-			pendingCpuAccess = true;
-			auto delta = isMSX1VDP() ? VDPAccessSlots::Delta::D28
-						 : VDPAccessSlots::Delta::D16;
-			syncCpuVramAccess.setSyncPoint(getAccessSlot(time, delta));
+		scheduleV99x8VramAccess(isRead, time);
+	}
+}
+
+void VDP::scheduleTMS99x8VramAccess(bool isRead, EmuTime time)
+{
+	if (pendingCpuAccess) [[unlikely]] {
+		if (!allowTooFastAccess) {
+			// The old request has been overwritten by the new request!
+			tooFastCallback.execute();
+			cpuVramReqIsRead = isRead;
+			cpuVramReqData = cpuVramData;
+			return;
 		}
+		// In 'ignore' mode no access may be lost, so give the one that is
+		// still waiting its turn now. (And don't report it: this mode is
+		// selected precisely to not care.)
+		flushCpuVramAccesses(time);
+	}
+
+	// For TMS99x8 the situation is less clear than for V99x8, see
+	//    doc/internal/vdp-vram-timing/vdp-timing-2.html
+	// Additional measurements(*) show that picking either 8 or 9
+	// TMS cycles (equivalent to 32 or 36 V99x8 cycles) gives the
+	// same result as on a real MSX. This corresponds to
+	// respectively 1.49us or 1.68us, the TMS documentation
+	// specifies 2us for this value.
+	//  (*) In this test we did a lot of OUT operations (writes to
+	//  VRAM) that are exactly N cycles apart. After the writes we
+	//  detect whether all were successful by reading VRAM
+	//  (slowly). We vary N and found that you get corruption for
+	//  N<=26 cycles, but no corruption occurs for N>=27. This test
+	//  was done in screen 2 with 4 sprites visible on one line
+	//  (though the sprites did not seem to make a difference).
+	// So this test could not decide between 8 or 9 TMS cycles.
+	// To be on the safe side we picked 8.
+	//
+	// Update: 8 cycles (Delta::D32) causes corruption in
+	// 'Chase HQ', see
+	//    http://www.msx.org/forum/msx-talk/openmsx/openmsx-about-release-testing-help-wanted
+	// lowering it to 7 cycles seems fine. TODO needs more
+	// investigation. (Just guessing) possibly there are
+	// other variables that influence the exact timing (7
+	// vs 8 cycles).
+	cpuVramReqIsRead = isRead;
+	cpuVramReqData = cpuVramData;
+	pendingCpuAccess = true;
+	syncCpuVramAccess.setSyncPoint(
+		getAccessSlot(time, VDPAccessSlots::Delta::CPU_28));
+}
+
+void VDP::scheduleV99x8VramAccess(bool isRead, EmuTime time)
+{
+	// The V9938 does not see the request at 'time': that is the start of T2
+	// of the Z80's I/O machine cycle, while /CSW only rises 3 T-states later.
+	// Measured from that edge the VDP registers the request 10.9 +- 0.2
+	// cycles later, so 29 cycles after 'time'. Only from there on do the 16
+	// cycles of lookahead count. See:
+	//    doc/internal/vdp-vram-timing/2026-measurement-analysis.md
+	EmuTime request = time + VDPClock::duration(CPU_REQUEST_DELAY);
+
+	if (cpuRequestIsTooEarly(request)) [[unlikely]] {
+		if (!allowTooFastAccess) {
+			// The VDP has nowhere to put this request, so nothing at all
+			// happens for it: no VRAM access, and the VRAM pointer does
+			// not advance.
+			tooFastCallback.execute();
+			return;
+		}
+		// In 'ignore' mode no access may be lost, so free the buffer by
+		// giving the access that is still waiting its turn now. (And don't
+		// report it: this mode is selected precisely to not care.)
+		flushCpuVramAccesses(time);
+	}
+
+	EmuTime slot = getAccessSlot(request, VDPAccessSlots::Delta::CPU_16);
+
+	// The slot the request would have been granted if the CPU could use every
+	// slot. When that is a 'tight' slot -- the continuation tick of a two-tick
+	// CPU-slot waveform, which the CPU cannot be served in -- the VDP still
+	// reserves it and spends it on a dummy read of 0x1FFFF, and serves the CPU
+	// at the next slot. Only in a narrow window: taking the request cycles the
+	// measurement repository reconstructs, 'request 18 to 21 cycles before
+	// that slot' predicts 585 of the 603 dummy reads in the sprites-off
+	// captures and 11 that did not happen. The boundary is not sharp -- 19
+	// misses 154 of them, 17 invents 134 -- so this is the best integer rule
+	// rather than an exact one.
+	EmuTime dummy = getAccessSlot(request, VDPAccessSlots::Delta::CPU_16_ANY);
+	if (dummy != slot) [[unlikely]] {
+		auto margin = VDPClock(request).getTicksTill(dummy);
+		if ((DUMMY_WINDOW_LO <= margin) && (margin < DUMMY_WINDOW_HI)) {
+			syncCpuVramDummy.setSyncPoint(dummy);
+		}
+	}
+
+	previousCpuSlot = slot;
+	previousCpuSlotIsLate = VDPAccessSlots::isLateCpuSlot(
+		getTicksThisFrame(slot) % TICKS_PER_LINE, *this);
+
+	if (pendingCpuAccess) [[unlikely]] {
+		// Accepted while the access before it has not happened yet: it gets
+		// its sync point when that one fires. This is not rare: the VDP
+		// registers the request 29 cycles after 'time', so a request that
+		// finds the buffer free right after the previous access has its
+		// port access up to 28 cycles before that access in emulated time.
+		// The BIOS's OTIR/INIR scroll in TEXT2 does this every line: 138
+		// cycles per byte, while a request there can wait 29 + 16 + 99
+		// cycles for its slot. There can never be a third one, because
+		// the CPU cannot issue two port accesses less than 66 cycles
+		// apart while no slot table makes an accepted request wait more
+		// than 100 + 18 cycles, so by the time a third one is accepted
+		// the first access has taken place. The write data has to travel
+		// with the request: the port access already put the new byte in
+		// 'cpuVramData', while the access before it has yet to store its
+		// own.
+		assert(secondCpuSlot == EmuTime::infinity());
+		assert(slot > *syncCpuVramAccess.isPending());
+		secondCpuSlot = slot;
+		secondCpuVramReqIsRead = isRead;
+		secondCpuVramReqData = cpuVramData;
+	} else {
+		cpuVramReqIsRead = isRead;
+		cpuVramReqData = cpuVramData;
+		pendingCpuAccess = true;
+		syncCpuVramAccess.setSyncPoint(slot);
+	}
+}
+
+/** The V9938 has a single CPU VRAM request buffer, and it is not free again
+  * until 'threshold' memory cycles before the access it was granted: +1 for a
+  * plain slot, -1 for a late one. A request that arrives earlier than that is
+  * lost. */
+bool VDP::cpuRequestIsTooEarly(EmuTime request) const
+{
+	// Almost always the request arrives well after the slot granted to the
+	// request before it, and is accepted whatever the padding in between
+	// does: a line carries only 4 cycles of it. Only the marginal cases need
+	// the exact distance, and those are always within a few cycles, so this
+	// also keeps the tick counts below well inside 32 bits.
+	if (request >= (previousCpuSlot + VDPClock::duration(5))) [[likely]] {
+		return false;
+	}
+	int tick = getTicksThisFrame(request) % TICKS_PER_LINE;
+	int threshold = previousCpuSlotIsLate ? -1 : 1;
+
+	if (request >= previousCpuSlot) {
+		// 0 to 4 cycles after it
+		int n = narrow<int>(VDPClock(previousCpuSlot).getTicksTill(request));
+		int distance = n ? (n - VDPAccessSlots::paddingCycles(
+		                            (tick - n + TICKS_PER_LINE) % TICKS_PER_LINE,
+		                            n, *this))
+		                 : 0;
+		return distance < threshold;
+	} else {
+		// Before it, which only a late slot can accept, and only by one
+		// memory cycle. More than 5 cycles early is more than 2 memory
+		// cycles early whatever the padding does.
+		int n = narrow<int>(VDPClock(request).getTicksTill(previousCpuSlot));
+		if (n > VDPAccessSlots::MAX_PADDING_SPAN) return true;
+		int distance = -(n - VDPAccessSlots::paddingCycles(tick, n, *this));
+		return distance < threshold;
+	}
+}
+
+void VDP::execCpuVramDummy(EmuTime time)
+{
+	// The VDP grants this slot to the CPU but cannot serve the CPU in it, so
+	// it spends the memory cycle on a read of 0x1FFFF. Nothing is latched and
+	// the VRAM pointer does not move; the only thing that shows is that the
+	// command engine does not get the slot either.
+	cmdEngine->stealAccessSlot(time);
+}
+
+void VDP::flushCpuVramAccesses(EmuTime time)
+{
+	// Only in 'too_fast_vram_access == ignore' mode, where no access may be
+	// lost: perform the accesses that have not had their slot yet.
+	assert(allowTooFastAccess);
+	while (pendingCpuAccess) {
+		syncCpuVramAccess.removeSyncPoint();
+		execCpuVramAccess(time);
 	}
 }
 
@@ -870,7 +1170,7 @@ void VDP::executeCpuVramAccess(EmuTime time)
 		if (cpuVramReqIsRead) {
 			cpuVramData = vram->cpuRead(addr, time);
 		} else {
-			vram->cpuWrite(addr, cpuVramData, time);
+			vram->cpuWrite(addr, cpuVramReqData, time);
 		}
 	} else {
 		if (cpuVramReqIsRead) {
@@ -905,6 +1205,7 @@ uint8_t VDP::peekStatusReg(uint8_t reg, EmuTime time) const
 	switch (reg) {
 	case 0:
 		spriteChecker->sync(time);
+		spriteChecker->checkStatusEarly(time);
 		return statusReg0;
 	case 1:
 		if (controlRegs[0] & 0x10) { // line int enabled
@@ -1231,18 +1532,20 @@ void VDP::changeRegister(uint8_t reg, uint8_t val, EmuTime time)
 			cerr << "changed to " << (val & 0x80 ? 212 : 192) << " lines"
 				<< " at line " << (getTicksThisFrame(time) / TICKS_PER_LINE) << "\n";
 			*/
-			// Display lines (192/212) determines display start and end.
-			// TODO: Find out exactly when display start is fixed.
-			//       If it is fixed at VSYNC that would simplify things,
-			//       but I think it's more likely the current
-			//       implementation is accurate.
-			if (time < displayStartSyncTime) {
-				// Display start is not fixed yet.
-				scheduleDisplayStart(time);
-			} else {
-				// Display start is fixed, but display end is not.
-				scheduleVScan(time);
-			}
+			// The 192/212 lines bit is sampled at the display line
+			// counter reset in the top border, which is where the
+			// display start gets fixed (see execLineCountReset()), so
+			// a change has no effect on the display start until then.
+			// The display end, however, is a comparison against the
+			// bit as it is now.
+			scheduleVScan(time);
+		}
+		break;
+	case 18:
+		if (change & 0xF0) {
+			// The display line counter reset moves with the vertical
+			// adjust.
+			scheduleLineCountReset(time);
 		}
 		break;
 	case 19:
@@ -1432,10 +1735,8 @@ void VDP::update(const Setting& setting) noexcept
 	allowTooFastAccess = tooFastAccess.getEnum();
 
 	if (allowTooFastAccess && pendingCpuAccess) [[unlikely]] {
-		// in allowTooFastAccess-mode, don't schedule CPU-VRAM access
-		syncCpuVramAccess.removeSyncPoint();
-		pendingCpuAccess = false;
-		executeCpuVramAccess(getCurrentTime());
+		// Switched to 'ignore' while accesses were waiting for their slot.
+		flushCpuVramAccesses(getCurrentTime());
 	}
 }
 
@@ -1920,6 +2221,11 @@ int VDP::MsxX512PosInfo::calc(EmuTime time) const
 // version 8: removed 'userData' from Schedulable
 // version 9: update sprite-enabled-status only once per line
 // version 10: added writeAccess
+// version 11: added previousCpuSlot, previousCpuSlotIsLate, secondCpuSlot, secondCpuVramReqIsRead
+// version 12: added isSlotTableDisplayArea and its two sync points
+// version 13: added cpuVramReqData, secondCpuVramReqData
+// version 14: added syncLineCountReset and lineCountResetSyncTime; displayStart
+//             is latched there instead of at frame start
 template<typename Archive>
 void VDP::serialize(Archive& ar, unsigned serVersion)
 {
@@ -1935,6 +2241,16 @@ void VDP::serialize(Archive& ar, unsigned serVersion)
 		             "syncSetBlank",      syncSetBlank,
 		             "syncCpuVramAccess", syncCpuVramAccess);
 		             // no need for syncCmdDone (only used for probe)
+		if (ar.versionAtLeast(serVersion, 11)) {
+			ar.serialize("syncCpuVramDummy", syncCpuVramDummy);
+		}
+		if (ar.versionAtLeast(serVersion, 12)) {
+			ar.serialize("syncSlotTableStart", syncSlotTableStart,
+			             "syncSlotTableEnd",   syncSlotTableEnd);
+		}
+		if (ar.versionAtLeast(serVersion, 14)) {
+			ar.serialize("syncLineCountReset", syncLineCountReset);
+		}
 	} else {
 		Schedulable::restoreOld(ar,
 			{&syncVSync, &syncDisplayStart, &syncVScan,
@@ -2013,6 +2329,45 @@ void VDP::serialize(Archive& ar, unsigned serVersion)
 		ar.serialize("writeAccess", writeAccess);
 	} else {
 		writeAccess = !cpuVramReqIsRead; // best guess
+	}
+
+	if (ar.versionAtLeast(serVersion, 12)) {
+		ar.serialize("isSlotTableDisplayArea", isSlotTableDisplayArea);
+	} else if constexpr (Archive::IS_LOADER) {
+		// Close enough: it differs from 'isDisplayArea' for one line a frame.
+		isSlotTableDisplayArea = isDisplayArea;
+	}
+
+	if (ar.versionAtLeast(serVersion, 14)) {
+		ar.serialize("lineCountResetSyncTime", lineCountResetSyncTime);
+	} else if constexpr (Archive::IS_LOADER) {
+		// Older states computed displayStart at frame start. That is
+		// the value the reset would latch too, so if this frame's reset
+		// is still ahead just schedule it; it then only re-schedules
+		// what was already pending.
+		lineCountResetSyncTime = frameStartTime.getTime();
+		scheduleLineCountReset(getCurrentTime());
+	}
+
+	if (ar.versionAtLeast(serVersion, 11)) {
+		ar.serialize("previousCpuSlot",        previousCpuSlot,
+		             "previousCpuSlotIsLate",  previousCpuSlotIsLate,
+		             "secondCpuSlot",          secondCpuSlot,
+		             "secondCpuVramReqIsRead", secondCpuVramReqIsRead);
+	} else if constexpr (Archive::IS_LOADER) {
+		// The first CPU-VRAM request after loading is then always
+		// accepted, which is at most one request too many.
+		previousCpuSlot = EmuTime::zero();
+		previousCpuSlotIsLate = false;
+		secondCpuSlot = EmuTime::infinity();
+	}
+	if (ar.versionAtLeast(serVersion, 13)) {
+		ar.serialize("cpuVramReqData",       cpuVramReqData,
+		             "secondCpuVramReqData", secondCpuVramReqData);
+	} else if constexpr (Archive::IS_LOADER) {
+		// Right unless a second write was accepted just before saving.
+		cpuVramReqData = cpuVramData;
+		secondCpuVramReqData = cpuVramData;
 	}
 
 	// externalVideo does not need serializing. It is set on load by the

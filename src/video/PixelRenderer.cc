@@ -49,7 +49,7 @@ void PixelRenderer::draw(
 		int displayX = (startX - vdp.getLeftSprites()) / 2;
 		int displayY = startY - zero;
 		if (!vdp.getDisplayMode().isTextMode()) {
-			displayY += vdp.getVerticalScroll();
+			displayY += renderScroll;
 		} else {
 			// this is not what the real VDP does, but it is good
 			// enough for "Boring scroll" demo part of "Relax"
@@ -114,7 +114,7 @@ void PixelRenderer::subdivide(
 	if (drawLast) draw(clipL, endY, endX, endY + 1, drawType, false);
 }
 
-PixelRenderer::PixelRenderer(VDP& vdp_, Display& display)
+PixelRenderer::PixelRenderer(VDP& vdp_, Display& display_)
 	: vdp(vdp_), vram(vdp.getVRAM())
 	, eventDistributor(vdp.getReactor().getEventDistributor())
 	, realTime(vdp.getMotherBoard().getRealTime())
@@ -122,6 +122,7 @@ PixelRenderer::PixelRenderer(VDP& vdp_, Display& display)
 		vdp.getReactor().getGlobalSettings().getSpeedManager())
 	, throttleManager(
 		vdp.getReactor().getGlobalSettings().getThrottleManager())
+	, display(display_)
 	, renderSettings(display.getRenderSettings())
 	, videoSourceSetting(vdp.getMotherBoard().getVideoSource())
 	, spriteChecker(vdp.getSpriteChecker())
@@ -179,6 +180,11 @@ void PixelRenderer::updateDisplayEnabled(bool enabled, EmuTime time)
 
 void PixelRenderer::frameStart(EmuTime time)
 {
+	// A scroll change still in flight at the end of the previous frame has
+	// taken effect by now; also resyncs after e.g. loading a savestate.
+	renderScroll = vdp.getVerticalScroll();
+	pendingScrollTicks = -1;
+
 	if (!rasterizer->isActive()) {
 		frameSkipCounter = 999.0f;
 		renderFrame = false;
@@ -214,7 +220,7 @@ void PixelRenderer::frameStart(EmuTime time)
 
 	if (paintFrame) {
 		frameSkipCounter = std::remainder(frameSkipCounter, 1.0f);
-	} else if (!rasterizer->isRecording()) {
+	} else if (!rasterizer->isRecording() && !display.isRenderAllFramesRequested()) {
 		renderFrame = false;
 		return;
 	}
@@ -363,9 +369,28 @@ void PixelRenderer::updatePalette(
 }
 
 void PixelRenderer::updateVerticalScroll(
-	int /*scroll*/, EmuTime time)
+	int scroll, EmuTime time)
 {
-	if (displayEnabled) sync(time);
+	if (displayEnabled) sync(time); // draws up to 'time' with the old value
+
+	// A mid-line change in bitmap modes waits for the next VRAM burst.
+	if (int ticks = vdp.getScrollBurstTicks(time); ticks >= 0) {
+		pendingScroll = scroll;
+		pendingScrollTicks = ticks;
+		return;
+	}
+	pendingScrollTicks = -1;
+	renderScroll = scroll;
+}
+
+void PixelRenderer::applyPendingScroll(EmuTime time)
+{
+	if (pendingScrollTicks < 0) return;
+	if (vdp.getTicksThisFrame(time) < pendingScrollTicks) return;
+	int ticks = pendingScrollTicks;
+	pendingScrollTicks = -1;
+	renderUntil(vdp.getTimeInFrame(ticks)); // old value up to the group edge
+	renderScroll = pendingScroll;
 }
 
 void PixelRenderer::updateHorizontalAdjust(
@@ -373,6 +398,11 @@ void PixelRenderer::updateHorizontalAdjust(
 {
 	if (displayEnabled) sync(time);
 	rasterizer->setHorizontalAdjust(adjust);
+}
+
+void PixelRenderer::updateLineZero(EmuTime time)
+{
+	if (displayEnabled) sync(time);
 }
 
 void PixelRenderer::updateDisplayMode(
@@ -563,6 +593,8 @@ void PixelRenderer::sync(EmuTime time, bool force)
 
 void PixelRenderer::renderUntil(EmuTime time)
 {
+	applyPendingScroll(time);
+
 	// Translate from time to pixel position.
 	int limitTicks = vdp.getTicksThisFrame(time);
 	assert(limitTicks <= vdp.getTicksPerFrame());

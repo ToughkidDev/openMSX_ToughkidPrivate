@@ -16,6 +16,7 @@
 #include "ESE_RAM.hh"
 #include "ESE_SCC.hh"
 #include "FraelSwitchableROM.hh"
+#include "Franky.hh"
 #include "GoudaSCSI.hh"
 #include "JVCMSXMIDI.hh"
 #include "MSXAudio.hh"
@@ -31,7 +32,7 @@
 #include "MSXHiResTimer.hh"
 #include "MSXKanji.hh"
 #include "MSXKanji12.hh"
-#include "MSXMakoto.hh"
+#include "MSXMakotoTK.hh"
 #include "MSXDarky.hh"
 #include "MSXNeoTron.hh"
 #include "MSXSoundStar.hh"
@@ -43,6 +44,7 @@
 #include "MSXMirrorDevice.hh"
 #include "MSXModem.hh"
 #include "MSXMoonSound.hh"
+#include "MSXMakoto.hh"
 #include "MSXMusic.hh"
 #include "MSXOPL3Cartridge.hh"
 #include "MSXPPI.hh"
@@ -52,6 +54,7 @@
 #include "MSXRS232.hh"
 #include "MSXRTC.hh"
 #include "MSXRam.hh"
+#include "SMXWiFi.hh"
 #include "MSXResetStatusRegister.hh"
 #include "MSXS1985.hh"
 #include "MSXS1990.hh"
@@ -199,7 +202,7 @@ std::unique_ptr<MSXDevice> DeviceFactory::create(DeviceConfig& conf)
 	} else if (type == "MSX-AUDIO") {
 		result = std::make_unique<MSXAudio>(conf);
 	} else if (type == "MAKOTO") {
-		result = std::make_unique<MSXMakoto>(conf);
+		result = std::make_unique<MSXMakotoTK>(conf);
 	} else if (type == "NEOTRON") {
 		result = std::make_unique<MSXNeoTron>(conf);
 	} else if (type == "DARKY") {
@@ -216,6 +219,8 @@ std::unique_ptr<MSXDevice> DeviceFactory::create(DeviceConfig& conf)
 		result = std::make_unique<MSXYamahaSFG>(conf);
 	} else if (type == "MoonSound") {
 		result = std::make_unique<MSXMoonSound>(conf);
+	} else if (type == "Makoto") {
+		result = std::make_unique<MSXMakoto>(conf);
 	} else if (type == "DalSoRiR2") {
 		result = std::make_unique<DalSoRiR2>(conf);
 	} else if (type == "OPL3Cartridge") {
@@ -291,6 +296,8 @@ std::unique_ptr<MSXDevice> DeviceFactory::create(DeviceConfig& conf)
 		result = std::make_unique<MSXModem>(conf);
 	} else if (type == "MSX-RS232") {
 		result = std::make_unique<MSXRS232>(conf);
+	} else if (type == "SMXWiFi") {
+		result = std::make_unique<SMXWiFi>(conf);
 	} else if (type == "MegaRam") {
 		result = std::make_unique<MSXMegaRam>(conf);
 	} else if (type == "PAC") {
@@ -337,6 +344,8 @@ std::unique_ptr<MSXDevice> DeviceFactory::create(DeviceConfig& conf)
 		// Ignore for now. We might want to create a real device for it later.
 	} else if (type == "MSXPiDevice") {
 		result = std::make_unique<MSXPiDevice>(conf);
+	} else if (type == "Franky") {
+		result = std::make_unique<Franky>(conf);
 	} else {
 		throw MSXException("Unknown device \"", type,
 		                   "\" specified in configuration");
@@ -367,7 +376,7 @@ std::unique_ptr<MSXDeviceSwitch> DeviceFactory::createDeviceSwitch(HardwareConfi
 
 std::unique_ptr<MSXMapperIO> DeviceFactory::createMapperIO(HardwareConfig& hwConf)
 {
-	static XMLElement& xml(createConfig("MapperIO", "MapperIO"));
+	static XMLElement& xml(createConfig("MapperIO", "MSX Memory Mapper I/O"));
 	return std::make_unique<MSXMapperIO>(DeviceConfig(hwConf, xml));
 }
 

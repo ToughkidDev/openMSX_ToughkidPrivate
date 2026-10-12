@@ -9,7 +9,11 @@
 #include "Pluggable.hh"
 #include "PluggingController.hh"
 
+#include "ImGuiPluggable.hh"
+
 #include <imgui.h>
+
+#include <algorithm>
 
 using namespace std::literals;
 
@@ -21,6 +25,10 @@ namespace openmsx {
 	if (pluggable == "msxjoystick2")       return "MSX joystick 2";
 	if (pluggable == "joymega1")           return "JoyMega controller 1";
 	if (pluggable == "joymega2")           return "JoyMega controller 2";
+	if (pluggable == "joyhandle1")         return "Panasonic FS-JH1 Joy Handle 1";
+	if (pluggable == "joyhandle2")         return "Panasonic FS-JH1 Joy Handle 2";
+	if (pluggable == "terminatorlaser")    return "ASCII Plus-X Terminator Laser";
+	if (pluggable == "gunstick")           return "MHT GUN-STICK";
 	if (pluggable == "arkanoidpad")        return "Arkanoid Vaus paddle";
 	if (pluggable == "ninjatap")           return "Ninja Tap";
 	if (pluggable == "cassetteplayer")     return "Tape deck";
@@ -65,6 +73,13 @@ void ImGuiConnector::paintPluggableSelectables(PluggingController& controller, c
 	}
 }
 
+void ImGuiConnector::paintImGuiExtra(Pluggable& pluggable)
+{
+	if (auto* extra = dynamic_cast<ImGuiPluggable*>(&pluggable)) {
+		extra->handleImGuiExtraMenuItems();
+	}
+}
+
 void ImGuiConnector::showPluggables(PluggingController& controller, Mode mode)
 {
 	im::Table("##shared-table", 2, [&]{
@@ -75,29 +90,37 @@ void ImGuiConnector::showPluggables(PluggingController& controller, Mode mode)
 				ImGui::TextUnformatted(connector->getDescription());
 			}
 			if (ImGui::TableNextColumn()) { // pluggable
-				const auto& currentPluggable = connector->getPlugged();
+				auto& currentPluggable = connector->getPlugged();
 				const auto& plugName = currentPluggable.getName();
 				const auto& connectorName = connector->getName();
 				using enum ImGuiConnector::Mode;
 				switch (mode) {
-					case VIEW:
-						ImGui::TextUnformatted(plugName.empty() ? "(empty)"sv : pluggableToGuiString(plugName));
-						break;
-					case COMBO:
-						ImGui::SetNextItemWidth(ImGui::GetFontSize() * 12.0f);
-						im::Combo(tmpStrCat("##", connectorName).c_str(), pluggableToGuiString(plugName).c_str(), [&]{
-							paintPluggableSelectables(controller, *connector);
-						});
-						break;
-					case SUBMENU:
-						im::Menu(tmpStrCat(strCat_if(plugName.empty(), "(empty)##", connectorName).else_(STRCAT_LAZY(pluggableToGuiString(plugName)))).c_str(), [&] {
-							paintPluggableSelectables(controller, *connector);
-						});
-						break;
-					default: UNREACHABLE;
-				}
-				if (mode != SUBMENU) {
+				case VIEW:
+					ImGui::TextUnformatted(plugName.empty() ? "(empty)"sv : pluggableToGuiString(plugName));
 					simpleToolTip(currentPluggable.getDescription());
+					break;
+				case COMBO:
+					ImGui::SetNextItemWidth(ImGui::GetFontSize() * 12.0f);
+					im::Combo(tmpStrCat("##", connectorName).c_str(), pluggableToGuiString(plugName).c_str(), [&]{
+						paintPluggableSelectables(controller, *connector);
+					});
+					simpleToolTip(currentPluggable.getDescription());
+					paintImGuiExtra(currentPluggable);
+					break;
+				case SUBMENU:
+					if (plugName.empty() && std::ranges::none_of(controller.getPluggables(), [&](const auto& plug) {
+							return plug->getClass() == connector->getClass(); })) {
+						// nothing to choose from, avoid an empty submenu
+						ImGui::TextUnformatted("(empty)"sv);
+						break;
+					}
+					im::Menu(tmpStrCat(strCat_if(plugName.empty(), "(empty)##", connectorName).else_(STRCAT_LAZY(pluggableToGuiString(plugName)))).c_str(), [&] {
+						paintPluggableSelectables(controller, *connector);
+					});
+					paintImGuiExtra(currentPluggable);
+					break;
+				default:
+					UNREACHABLE;
 				}
 			}
 		}

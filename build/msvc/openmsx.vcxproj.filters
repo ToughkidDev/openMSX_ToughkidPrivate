@@ -76,8 +76,8 @@
     <Filter Include="serial">
       <UniqueIdentifier>{8fe6dae8-765e-428c-abf4-662e83a99385}</UniqueIdentifier>
     </Filter>
-    <Filter Include="unapinet">
-      <UniqueIdentifier>{5a21c62d-f283-48c5-81c1-dca7dfe3dd2c}</UniqueIdentifier>
+    <Filter Include="network">
+      <UniqueIdentifier>{d33b52b5-2c15-4a02-9435-2854e5f1a7c3}</UniqueIdentifier>
     </Filter>
     <Filter Include="security">
       <UniqueIdentifier>{ce8126f9-f849-4f95-85bf-f6919a3a4e9a}</UniqueIdentifier>
@@ -274,6 +274,9 @@
       <Filter>debugger</Filter>
     </ClCompile>
     <ClCompile Include="$(OpenMSXSrcDir)\events\AfterCommand.cc">
+      <Filter>events</Filter>
+    </ClCompile>
+    <ClCompile Include="$(OpenMSXSrcDir)\events\AnalogInput.cc">
       <Filter>events</Filter>
     </ClCompile>
     <ClCompile Include="$(OpenMSXSrcDir)\events\BooleanInput.cc">
@@ -576,6 +579,9 @@
     <ClCompile Include="$(OpenMSXSrcDir)\imgui\ImGuiHelp.cc">
       <Filter>imgui</Filter>
     </ClCompile>
+    <ClCompile Include="$(OpenMSXSrcDir)\imgui\ImGuiIoPorts.cc">
+      <Filter>imgui</Filter>
+    </ClCompile>
     <ClCompile Include="$(OpenMSXSrcDir)\imgui\ImGuiKeyboard.cc">
       <Filter>imgui</Filter>
     </ClCompile>
@@ -616,6 +622,9 @@
       <Filter>imgui</Filter>
     </ClCompile>
     <ClCompile Include="$(OpenMSXSrcDir)\imgui\ImGuiSettings.cc">
+      <Filter>imgui</Filter>
+    </ClCompile>
+    <ClCompile Include="$(OpenMSXSrcDir)\imgui\ImGuiSlotMap.cc">
       <Filter>imgui</Filter>
     </ClCompile>
     <ClCompile Include="$(OpenMSXSrcDir)\imgui\ImGuiSoundChip.cc">
@@ -661,6 +670,18 @@
       <Filter>input</Filter>
     </ClCompile>
     <ClCompile Include="$(OpenMSXSrcDir)\input\EventDelay.cc">
+      <Filter>input</Filter>
+    </ClCompile>
+    <ClCompile Include="$(OpenMSXSrcDir)\input\Gunstick.cc">
+      <Filter>input</Filter>
+    </ClCompile>
+    <ClCompile Include="$(OpenMSXSrcDir)\input\LightGun.cc">
+      <Filter>input</Filter>
+    </ClCompile>
+    <ClCompile Include="$(OpenMSXSrcDir)\input\LightGunSensor.cc">
+      <Filter>input</Filter>
+    </ClCompile>
+    <ClCompile Include="$(OpenMSXSrcDir)\input\TerminatorLaser.cc">
       <Filter>input</Filter>
     </ClCompile>
     <ClCompile Include="$(OpenMSXSrcDir)\input\JoystickDevice.cc">
@@ -996,9 +1017,6 @@
     <ClCompile Include="$(OpenMSXSrcDir)\sound\AY8910.cc">
       <Filter>sound</Filter>
     </ClCompile>
-    <ClCompile Include="$(OpenMSXSrcDir)\sound\AY8910Periphery.cc">
-      <Filter>sound</Filter>
-    </ClCompile>
     <ClCompile Include="$(OpenMSXSrcDir)\sound\BlipBuffer.cc">
       <Filter>sound</Filter>
     </ClCompile>
@@ -1146,8 +1164,14 @@
     <ClCompile Include="$(OpenMSXSrcDir)\thread\Timer.cc">
       <Filter>thread</Filter>
     </ClCompile>
-    <ClCompile Include="$(OpenMSXSrcDir)\unapinet\UnapiNet.cc">
-      <Filter>unapinet</Filter>
+    <ClCompile Include="$(OpenMSXSrcDir)\network\EmulatedEsp32.cc">
+      <Filter>network</Filter>
+    </ClCompile>
+    <ClCompile Include="$(OpenMSXSrcDir)\network\SMXWiFi.cc">
+      <Filter>network</Filter>
+    </ClCompile>
+    <ClCompile Include="$(OpenMSXSrcDir)\network\UnapiNet.cc">
+      <Filter>network</Filter>
     </ClCompile>
     <ClCompile Include="$(OpenMSXSrcDir)\utils\Base64.cc">
       <Filter>utils</Filter>
@@ -1293,6 +1317,24 @@
     <ClCompile Include="$(OpenMSXSrcDir)\video\ZMBVEncoder.cc">
       <Filter>video</Filter>
     </ClCompile>
+    <ClCompile Include="$(OpenMSXSrcDir)\video\Franky.cc">
+      <Filter>video</Filter>
+    </ClCompile>
+    <ClCompile Include="$(OpenMSXSrcDir)\video\SMSVDP.cc">
+      <Filter>video</Filter>
+    </ClCompile>
+    <ClCompile Include="$(OpenMSXSrcDir)\video\SMSVDPCore.cc">
+      <Filter>video</Filter>
+    </ClCompile>
+    <ClCompile Include="$(OpenMSXSrcDir)\video\SMSVDPDummyRenderer.cc">
+      <Filter>video</Filter>
+    </ClCompile>
+    <ClCompile Include="$(OpenMSXSrcDir)\video\SMSVDPPixelRenderer.cc">
+      <Filter>video</Filter>
+    </ClCompile>
+    <ClCompile Include="$(OpenMSXSrcDir)\video\SMSVDPSDLRasterizer.cc">
+      <Filter>video</Filter>
+    </ClCompile>
     <ClCompile Include="$(OpenMSXSrcDir)\video\v9990\V9990.cc">
       <Filter>video\v9990</Filter>
     </ClCompile>
@@ -1401,6 +1443,9 @@
     <ClCompile Include="$(OpenMSXSrcDir)\serial\RS232Net.cc">
       <Filter>serial</Filter>
     </ClCompile>
+    <ClCompile Include="$(OpenMSXSrcDir)\serial\RS232Raw.cc">
+      <Filter>serial</Filter>
+    </ClCompile>
     <ClCompile Include="$(OpenMSXSrcDir)\serial\RS232Tester.cc">
       <Filter>serial</Filter>
     </ClCompile>
@@ -1500,6 +1545,12 @@
     <ClCompile Include="$(OpenMSXSrcDir)\SVIPrinterPort.cc" />
     <ClCompile Include="$(OpenMSXSrcDir)\SVIPPI.cc" />
     <ClCompile Include="$(OpenMSXSrcDir)\utils\SerializeBuffer.cc" />
+    <ClCompile Include="$(OpenMSXSrcDir)\utils\SerialPort.cc">
+      <Filter>utils</Filter>
+    </ClCompile>
+    <ClCompile Include="$(OpenMSXSrcDir)\utils\OpenSSL.cc">
+      <Filter>utils</Filter>
+    </ClCompile>
     <ClCompile Include="$(OpenMSXSrcDir)\memory\MegaFlashRomSCCPlus.cc">
       <Filter>memory</Filter>
     </ClCompile>
@@ -1511,6 +1562,7 @@
     <ClCompile Include="$(OpenMSXSrcDir)\fdc\RawTrack.cc" />
     <ClCompile Include="$(OpenMSXSrcDir)\fdc\DMKDiskImage.cc" />
     <ClCompile Include="$(OpenMSXSrcDir)\input\JoyMega.cc" />
+    <ClCompile Include="$(OpenMSXSrcDir)\input\JoyHandle.cc" />
     <ClCompile Include="$(OpenMSXSrcDir)\memory\RomDooly.cc" />
     <ClCompile Include="$(OpenMSXSrcDir)\sound\ResampledSoundDevice.cc" />
     <ClCompile Include="$(OpenMSXSrcDir)\video\scalers\GLHQScaler.cc" />
@@ -1789,6 +1841,9 @@
       <Filter>debugger</Filter>
     </None>
     <None Include="$(OpenMSXSrcDir)\events\AfterCommand.hh">
+      <Filter>events</Filter>
+    </None>
+    <None Include="$(OpenMSXSrcDir)\events\AnalogInput.hh">
       <Filter>events</Filter>
     </None>
     <None Include="$(OpenMSXSrcDir)\events\BooleanInput.hh">
@@ -2112,6 +2167,9 @@
     <None Include="$(OpenMSXSrcDir)\imgui\ImGuiHelp.hh">
       <Filter>imgui</Filter>
     </None>
+    <None Include="$(OpenMSXSrcDir)\imgui\ImGuiIoPorts.hh">
+      <Filter>imgui</Filter>
+    </None>
     <None Include="$(OpenMSXSrcDir)\imgui\ImGuiKeyboard.hh">
       <Filter>imgui</Filter>
     </None>
@@ -2157,6 +2215,9 @@
     <None Include="$(OpenMSXSrcDir)\imgui\ImGuiSettings.hh">
       <Filter>imgui</Filter>
     </None>
+    <None Include="$(OpenMSXSrcDir)\imgui\ImGuiSlotMap.hh">
+      <Filter>imgui</Filter>
+    </None>
     <None Include="$(OpenMSXSrcDir)\imgui\ImGuiSoundChip.hh">
       <Filter>imgui</Filter>
     </None>
@@ -2200,6 +2261,21 @@
       <Filter>input</Filter>
     </None>
     <None Include="$(OpenMSXSrcDir)\input\EventDelay.hh">
+      <Filter>input</Filter>
+    </None>
+    <None Include="$(OpenMSXSrcDir)\input\Gunstick.hh">
+      <Filter>input</Filter>
+    </None>
+    <None Include="$(OpenMSXSrcDir)\input\GunstickSensor.hh">
+      <Filter>input</Filter>
+    </None>
+    <None Include="$(OpenMSXSrcDir)\input\LightGun.hh">
+      <Filter>input</Filter>
+    </None>
+    <None Include="$(OpenMSXSrcDir)\input\LightGunSensor.hh">
+      <Filter>input</Filter>
+    </None>
+    <None Include="$(OpenMSXSrcDir)\input\TerminatorLaser.hh">
       <Filter>input</Filter>
     </None>
     <None Include="$(OpenMSXSrcDir)\input\JoystickDevice.hh">
@@ -2724,11 +2800,17 @@
     <None Include="$(OpenMSXSrcDir)\thread\Timer.hh">
       <Filter>thread</Filter>
     </None>
-    <None Include="$(OpenMSXSrcDir)\unapinet\UnapiNet.hh">
-      <Filter>unapinet</Filter>
+    <None Include="$(OpenMSXSrcDir)\network\EmulatedEsp32.hh">
+      <Filter>network</Filter>
     </None>
-    <None Include="$(OpenMSXSrcDir)\unapinet\UnapiNetWire.hh">
-      <Filter>unapinet</Filter>
+    <None Include="$(OpenMSXSrcDir)\network\SMXWiFi.hh">
+      <Filter>network</Filter>
+    </None>
+    <None Include="$(OpenMSXSrcDir)\network\UnapiNet.hh">
+      <Filter>network</Filter>
+    </None>
+    <None Include="$(OpenMSXSrcDir)\network\UnapiNetWire.hh">
+      <Filter>network</Filter>
     </None>
     <None Include="$(OpenMSXSrcDir)\utils\Aligned.hh">
       <Filter>utils</Filter>
@@ -2838,6 +2920,12 @@
     <None Include="$(OpenMSXSrcDir)\utils\utf8_checked.hh">
       <Filter>utils</Filter>
     </None>
+    <None Include="$(OpenMSXSrcDir)\utils\SerialPort.hh">
+      <Filter>utils</Filter>
+    </None>
+    <None Include="$(OpenMSXSrcDir)\utils\OpenSSL.hh">
+      <Filter>utils</Filter>
+    </None>
     <None Include="$(OpenMSXSrcDir)\utils\utf8_core.hh">
       <Filter>utils</Filter>
     </None>
@@ -2908,6 +2996,9 @@
       <Filter>video</Filter>
     </None>
     <None Include="$(OpenMSXSrcDir)\video\Layer.hh">
+      <Filter>video</Filter>
+    </None>
+    <None Include="$(OpenMSXSrcDir)\video\Monitor3D.hh">
       <Filter>video</Filter>
     </None>
     <None Include="$(OpenMSXSrcDir)\video\OutputSurface.hh">
@@ -2992,6 +3083,30 @@
       <Filter>video</Filter>
     </None>
     <None Include="$(OpenMSXSrcDir)\video\ZMBVEncoder.hh">
+      <Filter>video</Filter>
+    </None>
+    <None Include="$(OpenMSXSrcDir)\video\Franky.hh">
+      <Filter>video</Filter>
+    </None>
+    <None Include="$(OpenMSXSrcDir)\video\SMSVDP.hh">
+      <Filter>video</Filter>
+    </None>
+    <None Include="$(OpenMSXSrcDir)\video\SMSVDPCore.hh">
+      <Filter>video</Filter>
+    </None>
+    <None Include="$(OpenMSXSrcDir)\video\SMSVDPDummyRenderer.hh">
+      <Filter>video</Filter>
+    </None>
+    <None Include="$(OpenMSXSrcDir)\video\SMSVDPPixelRenderer.hh">
+      <Filter>video</Filter>
+    </None>
+    <None Include="$(OpenMSXSrcDir)\video\SMSVDPRasterizer.hh">
+      <Filter>video</Filter>
+    </None>
+    <None Include="$(OpenMSXSrcDir)\video\SMSVDPRenderer.hh">
+      <Filter>video</Filter>
+    </None>
+    <None Include="$(OpenMSXSrcDir)\video\SMSVDPSDLRasterizer.hh">
       <Filter>video</Filter>
     </None>
     <None Include="$(OpenMSXSrcDir)\video\v9990\V9990.hh">
@@ -3103,6 +3218,9 @@
       <Filter>serial</Filter>
     </None>
     <None Include="$(OpenMSXSrcDir)\serial\RS232Net.hh">
+      <Filter>serial</Filter>
+    </None>
+    <None Include="$(OpenMSXSrcDir)\serial\RS232Raw.hh">
       <Filter>serial</Filter>
     </None>
     <None Include="$(OpenMSXSrcDir)\serial\RS232Tester.hh">

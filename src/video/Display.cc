@@ -94,9 +94,38 @@ VideoSystem& Display::getVideoSystem()
 	return *videoSystem;
 }
 
+void Display::requestCrosshairCursor()
+{
+	++crosshairRequests;
+	if (videoSystem) videoSystem->updateCursor();
+}
+
+void Display::releaseCrosshairCursor()
+{
+	assert(crosshairRequests > 0);
+	--crosshairRequests;
+	if (videoSystem) videoSystem->updateCursor();
+}
+
+void Display::requestRenderAllFrames()
+{
+	++renderAllFramesRequests;
+}
+
+void Display::releaseRenderAllFrames()
+{
+	assert(renderAllFramesRequests > 0);
+	--renderAllFramesRequests;
+}
+
 OutputSurface* Display::getOutputSurface()
 {
 	return videoSystem ? videoSystem->getOutputSurface() : nullptr;
+}
+
+std::optional<gl::vec2> Display::getMsxPixelSize()
+{
+	return videoSystem ? videoSystem->getMsxPixelSize() : std::nullopt;
 }
 
 void Display::resetVideoSystem()

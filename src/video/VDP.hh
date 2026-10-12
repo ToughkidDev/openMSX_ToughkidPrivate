@@ -313,6 +313,18 @@ public:
 		return isDisplayArea && displayEnabled;
 	}
 
+	/** Is the VDP fetching display data, as far as the VRAM access slots are
+	  * concerned? The access grid does not follow the display area: it starts
+	  * 162 cycles into the line *before* it, where the VDP starts fetching the
+	  * sprite data of the first display line, and it ends 162 cycles into the
+	  * line after it. Measured at both borders, see section 12 of
+	  * doc/internal/vdp-vram-timing/2026-measurement-analysis.md.
+	  * @return true iff the display access grid applies.
+	  */
+	[[nodiscard]] bool isSlotTableDisplayEnabled() const {
+		return isSlotTableDisplayArea && displayEnabled;
+	}
+
 	/** Are sprites enabled?
 	  * @return True iff blanking is off, the current mode supports
 	  *   sprites and sprites are not disabled.
@@ -392,9 +404,17 @@ public:
 	/** Get the absolute line number of display line zero.
 	  * Usually this is equal to the height of the top border,
 	  * but not so during overscan.
+	  * Note: until this frame's display line counter reset (in the top
+	  * border, see execLineCountReset()) this still refers to the previous
+	  * frame's display start, expressed relative to this frame, so it is
+	  * then negative.
 	  */
 	[[nodiscard]] int getLineZero() const {
-		return displayStart / TICKS_PER_LINE;
+		// Floor division, so that 'line - getLineZero()' keeps counting
+		// display lines correctly while displayStart is negative.
+		int line = displayStart / TICKS_PER_LINE;
+		if ((displayStart % TICKS_PER_LINE) < 0) --line;
+		return line;
 	}
 
 	/** Is PAL timing active?
@@ -535,11 +555,19 @@ public:
 	  * a given time and the start of this frame.
 	  */
 	[[nodiscard]] int getTicksThisFrame(EmuTime time) const {
-		return narrow<int>(frameStartTime.getTicksTill_fast(time));
+		return narrow<int>(frameStartTime.getTicksTill(time));
 	}
 	[[nodiscard]] EmuTime getTimeInFrame(int ticks) const {
 		return frameStartTime + ticks;
 	}
+
+	/** In bitmap modes the VDP fetches VRAM in bursts of 8 pixels, so a
+	  * vertical scroll (R#23) write mid-line only takes effect at a later
+	  * burst. Returns the frame tick at which a write at 'time' reaches the
+	  * screen, or -1 if it takes effect immediately.
+	  */
+	[[nodiscard]] int getScrollBurstTicks(EmuTime time) const;
+
 	[[nodiscard]] EmuTime getFrameStartTime() const {
 		return frameStartTime.getTime();
 	}
@@ -850,6 +878,14 @@ private:
 		}
 	} syncVSync;
 
+	struct SyncLineCountReset final : public SyncBase {
+		using SyncBase::SyncBase;
+		void executeUntil(EmuTime time) override {
+			auto& vdp = OUTER(VDP, syncLineCountReset);
+			vdp.execLineCountReset(time);
+		}
+	} syncLineCountReset;
+
 	struct SyncDisplayStart final : public SyncBase {
 		using SyncBase::SyncBase;
 		void executeUntil(EmuTime time) override {
@@ -857,6 +893,22 @@ private:
 			vdp.execDisplayStart(time);
 		}
 	} syncDisplayStart;
+
+	struct SyncSlotTableStart final : public SyncBase {
+		using SyncBase::SyncBase;
+		void executeUntil(EmuTime time) override {
+			auto& vdp = OUTER(VDP, syncSlotTableStart);
+			vdp.execSlotTableStart(time);
+		}
+	} syncSlotTableStart;
+
+	struct SyncSlotTableEnd final : public SyncBase {
+		using SyncBase::SyncBase;
+		void executeUntil(EmuTime time) override {
+			auto& vdp = OUTER(VDP, syncSlotTableEnd);
+			vdp.execSlotTableEnd(time);
+		}
+	} syncSlotTableEnd;
 
 	struct SyncVScan final : public SyncBase {
 		using SyncBase::SyncBase;
@@ -914,6 +966,14 @@ private:
 		}
 	} syncCpuVramAccess;
 
+	struct SyncCpuVramDummy final : public SyncBase {
+		using SyncBase::SyncBase;
+		void executeUntil(EmuTime time) override {
+			auto& vdp = OUTER(VDP, syncCpuVramDummy);
+			vdp.execCpuVramDummy(time);
+		}
+	} syncCpuVramDummy;
+
 	struct SyncCmdDone final : public SyncBase {
 		using SyncBase::SyncBase;
 		void executeUntil(EmuTime time) override {
@@ -923,8 +983,12 @@ private:
 	} syncCmdDone;
 
 	void execVSync(EmuTime time);
+	void execLineCountReset(EmuTime time);
 	void execDisplayStart(EmuTime time);
 	void execVScan(EmuTime time);
+	void setSlotTableDisplayArea(bool enabled, EmuTime time);
+	void execSlotTableStart(EmuTime time);
+	void execSlotTableEnd(EmuTime time);
 	void execHScan();
 	void execHorAdjust(EmuTime time);
 	void execSetMode(EmuTime time);
@@ -985,14 +1049,14 @@ private:
 	  */
 	void frameStart(EmuTime time);
 
-	/** Schedules a DISPLAY_START sync point.
-	  * Also removes a pending DISPLAY_START sync, if any.
-	  * Since HSCAN and VSCAN are relative to display start,
-	  * their schedule methods are called by this method.
+	/** Schedules the display line counter reset for this frame, at line
+	  * 8 + vertical adjust. Also removes a pending one, if any. The reset
+	  * is where DISPLAY_START, VSCAN and HSCAN get scheduled from, see
+	  * execLineCountReset().
 	  * @param time The moment in emulated time this call takes place.
-	  *   Note: time is not the DISPLAY_START sync time!
+	  *   Note: time is not the reset sync time!
 	  */
-	void scheduleDisplayStart(EmuTime time);
+	void scheduleLineCountReset(EmuTime time);
 
 	/** Schedules a VSCAN sync point.
 	  * Also removes a pending VSCAN sync, if any.
@@ -1018,6 +1082,11 @@ private:
 
 	/** Helper methods for CPU-VRAM access. */
 	void scheduleCpuVramAccess(bool isRead, uint8_t write, EmuTime time);
+	void execCpuVramDummy(EmuTime time);
+	void scheduleTMS99x8VramAccess(bool isRead, EmuTime time);
+	void scheduleV99x8VramAccess(bool isRead, EmuTime time);
+	[[nodiscard]] bool cpuRequestIsTooEarly(EmuTime request) const;
+	void flushCpuVramAccesses(EmuTime time);
 	void executeCpuVramAccess(EmuTime time);
 
 	/** Read the contents of a status register
@@ -1201,9 +1270,21 @@ private:
 	  */
 	OptionalIRQHelper irqHorizontal;
 
+	/** Time of last set display line counter reset sync point.
+	  * Before it, in the top border, the counter still belongs to the
+	  * previous frame.
+	  */
+	EmuTime lineCountResetSyncTime;
+
 	/** Time of last set DISPLAY_START sync point.
 	  */
 	EmuTime displayStartSyncTime;
+
+	/** Moments the access grid switches to and from the display tables:
+	  * 1408 cycles before 'displayStartSyncTime' and 40 cycles before
+	  * 'vScanSyncTime'. See isSlotTableDisplayEnabled(). */
+	EmuTime slotTableStartSyncTime;
+	EmuTime slotTableEndSyncTime;
 
 	/** Time of last set VSCAN sync point.
 	  */
@@ -1239,12 +1320,18 @@ private:
 	  */
 	int frameCount;
 
-	/** VDP ticks between start of frame and start of display.
+	/** VDP ticks between start of frame and start of display, which is
+	  * where the display line counter reaches zero. Latched at the counter
+	  * reset in the top border (execLineCountReset()) and not changed
+	  * afterwards; from the next frame start until that frame's reset it
+	  * still describes the previous frame's display start, so it is then
+	  * negative.
 	  */
 	int displayStart;
 
 	/** VDP ticks between start of frame and the moment horizontal
-	  * scan match occurs.
+	  * scan match occurs. Like displayStart, this can point before the
+	  * start of this frame or beyond its end.
 	  */
 	int horizontalScanOffset;
 
@@ -1288,6 +1375,10 @@ private:
 	/** Is the current scan position inside the display area?
 	  */
 	bool isDisplayArea;
+
+	/** Same, but for the VRAM access slot tables, which switch one line
+	  * earlier. See isSlotTableDisplayEnabled(). */
+	bool isSlotTableDisplayArea;
 
 	/** Is PAL timing active? False means NTSC timing.
 	  * This value is updated at the start of every frame,
@@ -1353,11 +1444,32 @@ private:
 	  */
 	uint8_t cpuVramData;
 
-	/** CPU-VRAM requests are not executed immediately (though soon). This
-	  * variable indicates whether the pending request is read or write.
+	/** CPU-VRAM requests are not executed immediately (though soon). These
+	  * variables describe the pending request: read or write, and for a
+	  * write the byte to store. That byte cannot be taken from 'cpuVramData'
+	  * at the time of the access, because the CPU may by then have put the
+	  * next request's byte there (see 'secondCpuSlot').
 	  */
 	bool cpuVramReqIsRead;
+	uint8_t cpuVramReqData;
 	bool pendingCpuAccess; // always equal to syncCpuVramAccess.isPending()
+
+	/** The slot granted to the most recently accepted CPU-VRAM request, and
+	  * its class. It stays valid after that access has taken place, because
+	  * the V9938 has only one request buffer and the next request has to
+	  * clear this slot to be accepted at all. See cpuRequestIsTooEarly().
+	  * 'zero' means no request has been accepted yet, which works because no
+	  * request can arrive within 5 cycles of the start of the emulation. */
+	EmuTime previousCpuSlot = EmuTime::zero();
+	bool previousCpuSlotIsLate = false;
+
+	/** A request accepted while the access before it has not taken place yet
+	  * is booked here, until that earlier access frees the sync point.
+	  * 'infinity' means there is no such request; there can never be more
+	  * than one. See scheduleV99x8VramAccess(). */
+	EmuTime secondCpuSlot = EmuTime::infinity();
+	bool secondCpuVramReqIsRead = false;
+	uint8_t secondCpuVramReqData = 0;
 
 	/** Does CPU interface access main VRAM (false) or extended VRAM (true)?
 	  * This is determined by MXC (R#45, bit 6).
@@ -1397,7 +1509,7 @@ private:
 	MSXCPU& cpu;
 	const uint8_t fixedVDPIOdelayCycles;
 };
-SERIALIZE_CLASS_VERSION(VDP, 10);
+SERIALIZE_CLASS_VERSION(VDP, 14);
 
 } // namespace openmsx
 

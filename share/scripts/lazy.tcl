@@ -3,7 +3,7 @@
 #  (preferably keep this list sorted on script name)
 register_lazy "_about.tcl" about
 register_lazy "_backwards_compatibility.tcl" {quit decr restoredefault alias}
-register_lazy "_cheat.tcl" {findcheat}
+register_lazy "_cheat.tcl" {findcheat cheat_finder::start cheat_finder::search}
 register_lazy "_cashandler.tcl" {casload cassave caslist casrun caspos caseject tapedeck}
 register_lazy "_cpuregs.tcl" {reg cpuregs get_active_cpu}
 register_lazy "_cycle.tcl" {cycle cycle_back toggle}
@@ -17,7 +17,7 @@ register_lazy "_example_tools.tcl" {get_screen copy_screen_to_clipboard listing 
 register_lazy "_filepool.tcl" {filepool get_paths_for_type}
 register_lazy "_guess_title.tcl" {guess_title guess_rom_title guess_rom_device}
 register_lazy "_metal_gear_overlay.tcl" {toggle_metal_gear_overlay}
-register_lazy "_mog-overlay.tcl" {toggle_mog_overlay toggle_mog_editor}
+register_lazy "_mog-overlay.tcl" {toggle_mog_overlay toggle_mog_editor mog_password mog_password_show}
 register_lazy "_multi_screenshot.tcl" multi_screenshot
 register_lazy "_music_keyboard.tcl" {toggle_music_keyboard}
 register_lazy "_osd.tcl" {show_osd is_cursor_in}

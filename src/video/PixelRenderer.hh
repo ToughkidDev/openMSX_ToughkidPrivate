@@ -54,6 +54,7 @@ public:
 	void updatePalette(unsigned index, int grb, EmuTime time) override;
 	void updateVerticalScroll(int scroll, EmuTime time) override;
 	void updateHorizontalAdjust(int adjust, EmuTime time) override;
+	void updateLineZero(EmuTime time) override;
 	void updateDisplayEnabled(bool enabled, EmuTime time) override;
 	void updateDisplayMode(DisplayMode mode, EmuTime time) override;
 	void updateNameBase(unsigned addr, EmuTime time) override;
@@ -118,6 +119,7 @@ private:
 	RealTime& realTime;
 	SpeedManager& speedManager;
 	ThrottleManager& throttleManager;
+	Display& display;
 	RenderSettings& renderSettings;
 	VideoSourceSetting& videoSourceSetting;
 
@@ -142,6 +144,16 @@ private:
 
 	// internal VDP counter, actually belongs in VDP
 	int textModeCounter;
+
+	/** Vertical scroll (R#23) as used for drawing. The V99x8 fetches
+	  * bitmap VRAM in bursts of 8 pixels (one row address per burst, see
+	  * doc/internal/vdp-vram-timing), so a mid-line R#23 change only
+	  * reaches the screen at a later 8-pixel group boundary.
+	  */
+	int renderScroll = 0;
+	int pendingScroll = 0;
+	int pendingScrollTicks = -1; // -1: nothing pending
+	void applyPendingScroll(EmuTime time);
 
 	/** Accuracy setting for current frame.
 	  */
