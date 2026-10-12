@@ -10,8 +10,8 @@ namespace openmsx {
 
 MSXDarky::MSXDarky(DeviceConfig& config)
 	: MSXDevice(config)
-	, ay8930_1("Darky-AY8930-1", DummyAY8910Periphery::instance(), config, getCurrentTime())
-	, ay8930_2("Darky-AY8930-2", DummyAY8910Periphery::instance(), config, getCurrentTime())
+	, ay8930_1("Darky-AY8930-1", DummyAY8910Periphery::instance(), config, getCurrentTime(), AY8910::Type::AY8910)
+	, ay8930_2("Darky-AY8930-2", DummyAY8910Periphery::instance(), config, getCurrentTime(), AY8910::Type::AY8910)
 {
 	reset(getCurrentTime());
 }
