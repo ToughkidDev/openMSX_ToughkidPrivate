@@ -15,11 +15,15 @@
 
 namespace openmsx {
 
+class DebuggableBitmapViewer;
 class DebuggableEditor;
 class Debugger;
 class ImGuiBitmapViewer;
 class ImGuiCharacter;
 class ImGuiDisassembly;
+class ImGuiSMSVDPRegs;
+class ImGuiSMSVDPSprites;
+class ImGuiSMSVDPTiles;
 class ImGuiSpriteViewer;
 class MSXCPUInterface;
 
@@ -51,6 +55,9 @@ public:
 	void signalContinue();
 	void signalQuit();
 	void setGotoTarget(uint16_t target);
+	DebuggableBitmapViewer& openBitmapViewer(std::string_view debuggableName);
+	// The first open hex editor for this debuggable, or else a newly opened one.
+	DebuggableEditor& openHexEditor(std::string_view debuggableName);
 	void checkShortcuts(MSXCPUInterface& cpuInterface, MSXMotherBoard& motherBoard,
 	                    ImGuiDisassembly* disassembly);
 
@@ -82,7 +89,11 @@ private:
 	std::vector<std::unique_ptr<ImGuiBitmapViewer>> bitmapViewers;
 	std::vector<std::unique_ptr<ImGuiCharacter>> tileViewers;
 	std::vector<std::unique_ptr<ImGuiSpriteViewer>> spriteViewers;
+	std::vector<std::unique_ptr<ImGuiSMSVDPTiles>> smsVdpTileViewers;
+	std::vector<std::unique_ptr<ImGuiSMSVDPSprites>> smsVdpSpriteViewers;
+	std::vector<std::unique_ptr<ImGuiSMSVDPRegs>> smsVdpRegsViewers;
 	std::vector<std::unique_ptr<DebuggableEditor>> hexEditors; // sorted on 'getDebuggableName()'
+	std::vector<std::unique_ptr<DebuggableBitmapViewer>> debuggableBitmapViewers; // sorted on 'getDebuggableName()'
 
 	std::optional<SlotInfo> slotSnapshot;
 	std::optional<CPURegs> cpuRegsSnapshot;

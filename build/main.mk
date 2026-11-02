@@ -313,6 +313,11 @@ LINK_FLAGS+=$(TARGET_FLAGS)
 
 # Determine compiler.
 CXX?=g++
+# Use ccache if available to speed up compilation
+CCACHE?=$(shell command -v ccache 2>/dev/null)
+ifneq ($(CCACHE),)
+  CXX:=$(CCACHE) $(CXX)
+endif
 WINDRES?=windres
 DEPEND_FLAGS:=
 ifneq ($(filter %clang++,$(CXX))$(filter clang++%,$(CXX)),)
@@ -621,7 +626,7 @@ run-3rdparty:
 		BUILD_PATH=$(BUILD_PATH)/3rdparty \
 		OPENMSX_TARGET_CPU=$(OPENMSX_TARGET_CPU) \
 		OPENMSX_TARGET_OS=$(OPENMSX_TARGET_OS) \
-		_CC=$(CC) _CFLAGS="$(TARGET_FLAGS) $(CXXFLAGS)" \
+		_CC="$(CC)" _CFLAGS="$(TARGET_FLAGS) $(CXXFLAGS)" \
 		_LDFLAGS="$(TARGET_FLAGS)" \
 		WINDRES=$(WINDRES) \
 		LINK_MODE=$(LINK_MODE) \

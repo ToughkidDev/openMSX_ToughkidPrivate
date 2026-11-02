@@ -65,6 +65,7 @@ void JoystickManager::add(int deviceIndex)
 	auto& info = infos[idx];
 	info.joystick = SDL_JoystickOpen(deviceIndex);
 	info.instanceId = info.joystick ? SDL_JoystickInstanceID(info.joystick) : -1;
+	notify();
 }
 
 void JoystickManager::remove(int instanceId)
@@ -75,6 +76,9 @@ void JoystickManager::remove(int instanceId)
 	SDL_JoystickClose(it->joystick);
 	it->joystick = nullptr;
 	it->instanceId = -1;
+	// Also notify on removal: the default mappings of the joystick
+	// devices then become empty (as for an unplugged joystick at startup).
+	notify();
 }
 
 std::vector<JoystickId> JoystickManager::getConnectedJoysticks() const
@@ -126,7 +130,9 @@ std::string JoystickManager::getDisplayName(JoystickId joyId) const
 {
 	unsigned id = joyId.raw();
 	auto* joystick = (id < infos.size()) ? infos[id].joystick : nullptr;
-	return joystick ? SDL_JoystickName(joystick) : "[Not plugged in]";
+	if (!joystick) return "[Not plugged in]";
+	const char* name = SDL_JoystickName(joystick); // nullptr if there's no name
+	return name ? name : "[Unnamed joystick]";
 }
 
 std::optional<unsigned> JoystickManager::getNumAxes(JoystickId joyId) const

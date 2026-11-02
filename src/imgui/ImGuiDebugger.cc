@@ -1,5 +1,6 @@
 #include "ImGuiDebugger.hh"
 
+#include "DebuggableBitmapViewer.hh"
 #include "DebuggableEditor.hh"
 #include "ImGuiBitmapViewer.hh"
 #include "ImGuiBreakPoints.hh"
@@ -9,6 +10,9 @@
 #include "ImGuiManager.hh"
 #include "ImGuiPalette.hh"
 #include "ImGuiRasterViewer.hh"
+#include "ImGuiSMSVDPRegs.hh"
+#include "ImGuiSMSVDPSprites.hh"
+#include "ImGuiSMSVDPTiles.hh"
 #include "ImGuiSpriteViewer.hh"
 #include "ImGuiTraceViewer.hh"
 #include "ImGuiSymbols.hh"
@@ -150,6 +154,37 @@ static void openOrCreate(ImGuiManager& manager, std::vector<std::unique_ptr<T>>&
 	viewers.push_back(std::make_unique<T>(manager, viewers.size()));
 }
 
+// For viewers sorted on 'getDebuggableName()': one line per debuggable with the
+// number of viewers on it.
+template<typename T>
+static void saveCountPerDebuggable(ImGuiTextBuffer& buf, const char* prefix, const std::vector<std::unique_ptr<T>>& viewers)
+{
+	// TODO in the future use c++23 std::chunk_by
+	auto it = viewers.begin();
+	auto et = viewers.end();
+	while (it != et) {
+		int count = 0;
+		auto name = std::string((*it)->getDebuggableName());
+		do {
+			++it;
+			++count;
+		} while (it != et && (*it)->getDebuggableName() == name);
+		buf.appendf("%s%s=%d\n", prefix, name.c_str(), count);
+	}
+}
+
+template<typename T>
+static void createForDebuggable(ImGuiManager& manager, std::vector<std::unique_ptr<T>>& viewers,
+                                std::string_view debuggableName, unsigned count)
+{
+	auto [b, e] = std::ranges::equal_range(viewers, debuggableName, {}, &T::getDebuggableName);
+	auto index = std::distance(b, e); // expected to be 0, but be robust against imgui.ini changes
+	for (auto i : xrange(count)) {
+		e = viewers.insert(e, std::make_unique<T>(manager, debuggableName, index + i));
+		++e;
+	}
+}
+
 void ImGuiDebugger::save(ImGuiTextBuffer& buf)
 {
 	savePersistent(buf, *this, persistentElements);
@@ -158,19 +193,12 @@ void ImGuiDebugger::save(ImGuiTextBuffer& buf)
 	buf.appendf("bitmapViewers=%d\n", narrow<int>(bitmapViewers.size()));
 	buf.appendf("tileViewers=%d\n", narrow<int>(tileViewers.size()));
 	buf.appendf("spriteViewers=%d\n", narrow<int>(spriteViewers.size()));
+	buf.appendf("smsVdpTileViewers=%d\n", narrow<int>(smsVdpTileViewers.size()));
+	buf.appendf("smsVdpSpriteViewers=%d\n", narrow<int>(smsVdpSpriteViewers.size()));
+	buf.appendf("smsVdpRegsViewers=%d\n", narrow<int>(smsVdpRegsViewers.size()));
 
-	// TODO in the future use c++23 std::chunk_by
-	auto it = hexEditors.begin();
-	auto et = hexEditors.end();
-	while (it != et) {
-		int count = 0;
-		auto name = std::string((*it)->getDebuggableName());
-		do {
-			++it;
-			++count;
-		} while (it != et && (*it)->getDebuggableName() == name);
-		buf.appendf("hexEditor.%s=%d\n", name.c_str(), count);
-	}
+	saveCountPerDebuggable(buf, "hexEditor.", hexEditors);
+	saveCountPerDebuggable(buf, "debuggableBitmap.", debuggableBitmapViewers);
 }
 
 void ImGuiDebugger::loadStart()
@@ -179,7 +207,11 @@ void ImGuiDebugger::loadStart()
 	bitmapViewers.clear();
 	tileViewers.clear();
 	spriteViewers.clear();
+	smsVdpTileViewers.clear();
+	smsVdpSpriteViewers.clear();
+	smsVdpRegsViewers.clear();
 	hexEditors.clear();
+	debuggableBitmapViewers.clear();
 }
 
 void ImGuiDebugger::loadEnd()
@@ -190,6 +222,7 @@ void ImGuiDebugger::loadEnd()
 void ImGuiDebugger::loadLine(std::string_view name, zstring_view value)
 {
 	static constexpr std::string_view hexEditorPrefix = "hexEditor.";
+	static constexpr std::string_view bitmapPrefix = "debuggableBitmap.";
 
 	if (loadOnePersistent(name, value, *this, persistentElements)) {
 		// already handled
@@ -209,17 +242,54 @@ void ImGuiDebugger::loadLine(std::string_view name, zstring_view value)
 		if (auto r = StringOp::stringTo<unsigned>(value)) {
 			repeat(*r, [&] { openOrCreate(manager, spriteViewers); });
 		}
+	} else if (name == "smsVdpTileViewers") {
+		if (auto r = StringOp::stringTo<unsigned>(value)) {
+			repeat(*r, [&] { openOrCreate(manager, smsVdpTileViewers); });
+		}
+	} else if (name == "smsVdpSpriteViewers") {
+		if (auto r = StringOp::stringTo<unsigned>(value)) {
+			repeat(*r, [&] { openOrCreate(manager, smsVdpSpriteViewers); });
+		}
+	} else if (name == "smsVdpRegsViewers") {
+		if (auto r = StringOp::stringTo<unsigned>(value)) {
+			repeat(*r, [&] { openOrCreate(manager, smsVdpRegsViewers); });
+		}
 	} else if (name.starts_with(hexEditorPrefix)) {
 		if (auto r = StringOp::stringTo<unsigned>(value)) {
-			auto debuggableName = std::string(name.substr(hexEditorPrefix.size()));
-			auto [b, e] = std::ranges::equal_range(hexEditors, debuggableName, {}, &DebuggableEditor::getDebuggableName);
-			auto index = std::distance(b, e); // expected to be 0, but be robust against imgui.ini changes
-			for (auto i : xrange(*r)) {
-				e = hexEditors.insert(e, std::make_unique<DebuggableEditor>(manager, debuggableName, index + i));
-				++e;
-			}
+			createForDebuggable(manager, hexEditors, name.substr(hexEditorPrefix.size()), *r);
+		}
+	} else if (name.starts_with(bitmapPrefix)) {
+		if (auto r = StringOp::stringTo<unsigned>(value)) {
+			createForDebuggable(manager, debuggableBitmapViewers, name.substr(bitmapPrefix.size()), *r);
 		}
 	}
+}
+
+DebuggableBitmapViewer& ImGuiDebugger::openBitmapViewer(std::string_view debuggableName)
+{
+	// prefer to reuse a previously closed viewer
+	auto [b, e] = std::ranges::equal_range(debuggableBitmapViewers, debuggableName, {}, &DebuggableBitmapViewer::getDebuggableName);
+	auto it = std::ranges::find(b, e, false, &DebuggableBitmapViewer::show);
+	if (it == e) {
+		// or create a new one
+		it = debuggableBitmapViewers.insert(e, std::make_unique<DebuggableBitmapViewer>(manager, debuggableName, std::distance(b, e)));
+	}
+	(*it)->show = true;
+	return **it;
+}
+
+DebuggableEditor& ImGuiDebugger::openHexEditor(std::string_view debuggableName)
+{
+	// prefer an open editor, then reuse a previously closed one (when none is open, all are closed)
+	auto [b, e] = std::ranges::equal_range(hexEditors, debuggableName, {}, &DebuggableEditor::getDebuggableName);
+	auto it = std::ranges::find(b, e, true, &DebuggableEditor::open);
+	if (it == e) it = b;
+	if (it == e) {
+		// or create a new one
+		it = hexEditors.insert(e, std::make_unique<DebuggableEditor>(manager, debuggableName, 0));
+	}
+	(*it)->open = true;
+	return **it;
 }
 
 void ImGuiDebugger::showMenu(MSXMotherBoard* motherBoard)
@@ -279,20 +349,35 @@ void ImGuiDebugger::showMenu(MSXMotherBoard* motherBoard)
 		if (ImGui::MenuItem("VDP sprite viewer")) {
 			openOrCreate(manager, spriteViewers);
 		}
+		if (motherBoard && motherBoard->findDevice("Franky")) {
+			if (ImGui::MenuItem("SMS VDP tile viewer")) {
+				openOrCreate(manager, smsVdpTileViewers);
+			}
+			if (ImGui::MenuItem("SMS VDP sprite viewer")) {
+				openOrCreate(manager, smsVdpSpriteViewers);
+			}
+			if (ImGui::MenuItem("SMS VDP register viewer")) {
+				openOrCreate(manager, smsVdpRegsViewers);
+			}
+		}
 		ImGui::MenuItem("Raster beam viewer", nullptr, &manager.rasterViewer->show);
 		ImGui::MenuItem("VDP register viewer", nullptr, &manager.vdpRegs->show);
 		ImGui::MenuItem("Palette editor", nullptr, &manager.palette->window.open);
 		ImGui::Separator();
-		im::Menu("Add hex editor", [&]{
-			const auto& debugger = motherBoard->getDebugger();
-			auto debuggables = to_vector<std::pair<std::string, Debuggable*>>(debugger.getDebuggables());
-			std::ranges::sort(debuggables, StringOp::caseless{}, [](const auto& p) { return p.first; }); // sort on name
-			for (const auto& [name, debuggable] : debuggables) {
-				if (ImGui::Selectable(strCat(name).c_str())) {
-					createHexEditor(name);
+		auto debuggablesMenu = [&](const char* label, std::invocable<const std::string&> auto action) {
+			im::Menu(label, [&]{
+				const auto& debugger = motherBoard->getDebugger();
+				auto debuggables = to_vector<std::pair<std::string, Debuggable*>>(debugger.getDebuggables());
+				std::ranges::sort(debuggables, StringOp::caseless{}, [](const auto& p) { return p.first; }); // sort on name
+				for (const auto& [name, debuggable] : debuggables) {
+					if (ImGui::Selectable(strCat(name).c_str())) {
+						action(name);
+					}
 				}
-			}
-		});
+			});
+		};
+		debuggablesMenu("Add hex editor", createHexEditor);
+		debuggablesMenu("Add bitmap viewer", [&](const std::string& name) { openBitmapViewer(name); });
 	});
 }
 
