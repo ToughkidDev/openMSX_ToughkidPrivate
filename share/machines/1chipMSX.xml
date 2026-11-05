@@ -56,6 +56,13 @@
       <io base="0x90" num="2"/>
     </PrinterPort>
 
+    <TurboRPCM id="PCM">
+      <io base="0xA4" num="2"/>
+      <sound>
+        <volume>21000</volume>
+      </sound>
+    </TurboRPCM>
+
     <!-- The OCM-PLD core: ESE-RAM (BIOS images loaded by the IPL), MegaSD
          with SD card and EPCS serial flash, IPL mode, switched I/O ports
          (ID 212 and ID 8), kanji font ports, OPLL and the F4h device.
@@ -91,6 +98,7 @@
       <io base="0x7C" num="2" type="O"/>
       <io base="0xD8" num="4" type="IO"/>
       <io base="0xF4" num="1" type="IO"/>
+      <io base="0xA7" num="1" type="I"/>
     </OCMPLD>
 
     <primary slot="0">

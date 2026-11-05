@@ -25,6 +25,12 @@ public:
 	[[nodiscard]] bool isPresent() const;
 	[[nodiscard]] bool isWriteProtected() const;
 
+	/** Number of bytes between the CRC of a written block and the data
+	  * response token. Real cards send the token right after the CRC (0),
+	  * the default of 1 is what the existing openMSX devices were tuned
+	  * for. */
+	void setWriteResponseDelay(uint8_t delay) { writeResponseDelay = delay; }
+
 	template<typename Archive>
 	void serialize(Archive& ar, unsigned version);
 
@@ -51,6 +57,7 @@ private:
 	cb_queue<uint8_t> responseQueue;
 
 	uint8_t transferDelayCounter = 0;
+	uint8_t writeResponseDelay = 1; // not serialized: set by the owning device
 	Mode mode = Mode::COMMAND;
 	unsigned currentSector = 0;
 	int currentByteInSector = 0;

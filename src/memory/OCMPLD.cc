@@ -189,6 +189,10 @@ OCMPLD::OCMPLD(DeviceConfig& config)
 	, panaSwitch(getMotherBoard(), *this)
 	, dipSwitches(narrow_cast<byte>(config.getChildDataAsInt("dipswitches", 0x80)))
 {
+	// The OCM disk drivers read the data response token right after the
+	// CRC of a written block, as sent by real SD cards.
+	sdCard->setWriteResponseDelay(0);
+
 	// IPL-ROM (preloader): it loads the IPL loader from the EPCS.
 	iplRom.fill(0xFF);
 	copyRom(config, getName() + " IPL-ROM", "OCM IPL-ROM (preloader)", "ipl", iplRom);
@@ -352,6 +356,8 @@ byte OCMPLD::peekIO(uint16_t port, EmuTime /*time*/) const
 		return eseRam[ESE_JIS1 + kanjiAddr1];
 	case 0xDB:
 		return jis2Enabled ? eseRam[ESE_JIS2 + kanjiAddr2] : 0xFF;
+	case 0xA7: // turboR pause switch, only present in turboR (F4h) mode
+		return portF4Mode ? 0x00 : 0xFF;
 	case 0xF4:
 		return (portF4Bit7 ? 0x80 : 0x00) | (portF4Mode ? 0x00 : 0x7F);
 	default:

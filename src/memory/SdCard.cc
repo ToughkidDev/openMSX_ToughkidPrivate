@@ -152,7 +152,7 @@ uint8_t SdCard::transfer(uint8_t value, bool cs)
 				response = DRT_WRITE_ERROR;
 			}
 			mode = COMMAND;
-			transferDelayCounter = 1;
+			transferDelayCounter = writeResponseDelay;
 			responseQueue.push_back(response);
 		}
 		break;
@@ -196,7 +196,7 @@ uint8_t SdCard::transfer(uint8_t value, bool cs)
 					// spec?
 				}
 			}
-			transferDelayCounter = 1;
+			transferDelayCounter = writeResponseDelay;
 			responseQueue.push_back(response);
 		}
 		break;
