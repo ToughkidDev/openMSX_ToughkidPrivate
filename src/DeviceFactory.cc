@@ -95,6 +95,7 @@
 #include "TurboRFDC.hh"
 #include "V9990.hh"
 #include "MSXPiDevice.hh"
+#include "OCMPLD.hh"
 #include "VDP.hh"
 #include "VDPIODelay.hh"
 #include "VictorFDC.hh"
@@ -345,6 +346,10 @@ std::unique_ptr<MSXDevice> DeviceFactory::create(DeviceConfig& conf)
 		result = std::make_unique<YamahaSKW01>(conf);
 	} else if (type == one_of("T7775", "T7937", "T9763", "T9769")) {
 		// Ignore for now. We might want to create a real device for it later.
+	} else if (type == "OCMPLD") {
+		result = std::make_unique<OCMPLD>(conf);
+	} else if (type == "OCMSlot") {
+		result = std::make_unique<OCMSlot>(conf);
 	} else if (type == "MSXPiDevice") {
 		result = std::make_unique<MSXPiDevice>(conf);
 	} else if (type == "Franky") {

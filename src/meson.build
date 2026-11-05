@@ -336,6 +336,7 @@ sources = files(
     'memory/MegaFlashRomSCCPlus.cc',
     'memory/MegaFlashRomSCCPlusSD.cc',
     'memory/MusicalMemoryMapper.cc',
+    'memory/OCMPLD.cc',
     'memory/PanasonicMemory.cc',
     'memory/PanasonicRam.cc',
     'memory/ROMHunterMk2.cc',

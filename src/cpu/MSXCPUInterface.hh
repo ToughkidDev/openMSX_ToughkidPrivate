@@ -255,6 +255,14 @@ public:
 	[[nodiscard]] bool isExpanded(int ps) const { return expanded[ps] != 0; }
 	void changeExpanded(bool newExpanded);
 
+	/** Hide (or show again) the slot expander of an expanded primary slot,
+	  * keeping the devices in its sub-slots. While hidden the slot behaves
+	  * like a non-expanded slot showing sub-slot 0, and address 0xFFFF is
+	  * handled by that device. Used by the 1chipMSX (OCM-PLD), which can
+	  * switch slot 0 between expanded and primary mode at runtime.
+	  */
+	void setExpanderHidden(int ps, bool hidden);
+
 	[[nodiscard]] auto getPrimarySlot  (int page) const { return primarySlotState[page]; }
 	[[nodiscard]] auto getSecondarySlot(int page) const { return secondarySlotState[page]; }
 
@@ -474,6 +482,7 @@ private:
 	std::array<uint8_t, 4> secondarySlotState;
 	uint8_t initialPrimarySlots;
 	std::array<unsigned, 4> expanded;
+	std::array<bool, 4> expanderHidden = {false, false, false, false};
 
 	bool fastForward = false; // no need to serialize
 

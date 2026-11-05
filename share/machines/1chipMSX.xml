@@ -1,0 +1,157 @@
+<?xml version="1.0" ?>
+<!DOCTYPE msxconfig SYSTEM 'msxconfig2.dtd'>
+<msxconfig>
+
+  <info>
+    <manufacturer>D4 Enterprise</manufacturer>
+    <code>1chipMSX (OCM-PLD)</code>
+    <release_year>2006</release_year>
+    <description>1chipMSX (MSX++) with the OCM-PLD v3.9.2 firmware. Boots like the real machine: the original IPL-ROM loads OCM-BIOS.DAT from the SD card (insert your OCM SD card image with the 'hda' command or -hda while the machine is powered off).</description>
+    <type>MSX2+</type>
+    <region>int</region>
+  </info>
+
+  <MapperReadBackBits>largest</MapperReadBackBits>
+
+  <CassettePort/>
+
+  <devices>
+
+    <PPI id="ppi">
+      <sound>
+        <volume>16000</volume>
+      </sound>
+      <io base="0xA8" num="4"/>
+      <keyboard_type>int</keyboard_type>
+      <has_keypad>true</has_keypad>
+      <key_ghosting_sgc_protected>true</key_ghosting_sgc_protected>
+      <code_kana_locks>false</code_kana_locks>
+      <graph_locks>false</graph_locks>
+    </PPI>
+
+    <VDP id="VDP">
+      <version>V9958</version>
+      <vram>128</vram>
+      <io base="0x98" num="4" type="O"/>
+      <io base="0x98" num="2" type="I"/>
+    </VDP>
+
+    <PSG id="PSG">
+      <type>YM2149</type>
+      <keyboardlayout>JIS</keyboardlayout>
+      <sound>
+        <volume>21000</volume>
+      </sound>
+      <io base="0xA0" num="4" type="IO"/>
+      <ignorePortDirections>true</ignorePortDirections>
+    </PSG>
+
+    <RTC id="Real time clock">
+      <sramname>1chipMSX.cmos</sramname>
+      <io base="0xB4" num="2" type="O"/>
+      <io base="0xB5" num="1" type="I"/>
+    </RTC>
+
+    <PrinterPort id="Printer Port">
+      <io base="0x90" num="2"/>
+    </PrinterPort>
+
+    <!-- The OCM-PLD core: ESE-RAM (BIOS images loaded by the IPL), MegaSD
+         with SD card and EPCS serial flash, IPL mode, switched I/O ports
+         (ID 212 and ID 8), kanji font ports, OPLL and the F4h device.
+         Must come after the PPI. -->
+    <OCMPLD id="1chipMSX">
+      <rom id="ipl">
+        <filename>ocm_pld_iplrom_304k.bin</filename>
+        <sha1>9d1bc00c2041d72c348f9dcfb2c2410022cab386</sha1>
+      </rom>
+      <rom id="iplloader">
+        <filename>ocm_pld_iplloader_304k_rev300.bin</filename>
+        <sha1>8024c0d14faae6967da0686caccfb0ab768c97ea</sha1>
+      </rom>
+      <rom id="profile">
+        <filename>ocm_pld_ig1_init_profile.bin</filename>
+        <sha1>b551511b0e4d51b696fbbcfb86e5de4358a00fd6</sha1>
+      </rom>
+      <!-- Optional: 304kB EPBIOS used when the SD card has no OCM-BIOS.DAT
+      <rom id="epbios">
+        <filename>ocm_pld_epbios.bin</filename>
+      </rom>
+      -->
+      <!-- Physical DIP switches, bit n = DIP-SW n+1 is ON (DIP-SW8 = MegaSD) -->
+      <dipswitches>128</dipswitches>
+      <sdcard1>
+        <filename>1chipMSX_SD.sdc</filename>
+        <size>256</size>
+      </sdcard1>
+      <sound>
+        <volume>9000</volume>
+      </sound>
+      <io base="0xA8" num="1" type="O"/>
+      <io base="0x7C" num="2" type="O"/>
+      <io base="0xD8" num="4" type="IO"/>
+      <io base="0xF4" num="1" type="IO"/>
+    </OCMPLD>
+
+    <primary slot="0">
+      <secondary slot="0">
+        <OCMSlot id="MAIN ROM">
+          <window>main</window>
+          <device idref="1chipMSX"/>
+          <mem base="0x0000" size="0xC000"/>
+        </OCMSlot>
+      </secondary>
+      <secondary slot="1"/>
+      <secondary slot="2">
+        <OCMSlot id="MSX-MUSIC ROM">
+          <window>music</window>
+          <device idref="1chipMSX"/>
+          <mem base="0x4000" size="0x4000"/>
+        </OCMSlot>
+      </secondary>
+      <secondary slot="3">
+        <OCMSlot id="OPT ROM">
+          <window>opt</window>
+          <device idref="1chipMSX"/>
+          <mem base="0x4000" size="0x4000"/>
+        </OCMSlot>
+      </secondary>
+    </primary>
+
+    <primary external="true" slot="1"/>
+
+    <primary external="true" slot="2"/>
+
+    <primary slot="3">
+      <secondary slot="0">
+        <MemoryMapper id="Main RAM">
+          <size>2048</size>
+          <mem base="0x0000" size="0x10000"/>
+        </MemoryMapper>
+      </secondary>
+      <secondary slot="1">
+        <OCMSlot id="SUB ROM and Kanji BASIC">
+          <window>extd</window>
+          <device idref="1chipMSX"/>
+          <mem base="0x0000" size="0xC000"/>
+        </OCMSlot>
+      </secondary>
+      <secondary slot="2">
+        <OCMSlot id="MegaSD">
+          <window>megasd</window>
+          <device idref="1chipMSX"/>
+          <mem base="0x4000" size="0x8000"/>
+        </OCMSlot>
+      </secondary>
+      <secondary slot="3">
+        <OCMSlot id="IPL-ROM and XBASIC">
+          <window>ipl</window>
+          <device idref="1chipMSX"/>
+          <mem base="0x0000" size="0x10000"/>
+        </OCMSlot>
+      </secondary>
+    </primary>
+
+  </devices>
+
+</msxconfig>

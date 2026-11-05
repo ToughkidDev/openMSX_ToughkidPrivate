@@ -322,6 +322,20 @@ void MSXCPUInterface::unsetExpanded(int ps)
 	changeExpanded(isExpanded(primarySlotState[3]));
 }
 
+void MSXCPUInterface::setExpanderHidden(int ps, bool hidden)
+{
+	if (expanderHidden[ps] == hidden) return;
+	if (hidden) {
+		assert(isExpanded(ps));
+		setSubSlot(narrow<uint8_t>(ps), 0);
+		expanded[ps]--;
+	} else {
+		expanded[ps]++;
+	}
+	expanderHidden[ps] = hidden;
+	changeExpanded(isExpanded(primarySlotState[3]));
+}
+
 void MSXCPUInterface::changeExpanded(bool newExpanded)
 {
 	if (newExpanded) {
